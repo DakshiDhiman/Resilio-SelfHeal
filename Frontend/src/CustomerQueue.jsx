@@ -86,10 +86,12 @@ function CustomerQueue() {
       }
 
       navigate("/queue/status", {
-        state: {
-          queueEntry: entry,
-        },
-      });
+  state: {
+    queueEntry: entry,
+    notification: result.notification,
+  },
+  replace: true,
+});
     } catch (err) {
       setError(
         err.message ||

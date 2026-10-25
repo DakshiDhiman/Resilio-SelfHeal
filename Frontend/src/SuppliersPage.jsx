@@ -32,13 +32,16 @@ function SummaryCard({ icon: Icon, label, value, note, accent }) {
     <div className="rounded-2xl border border-[#E8E5DA] bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-[#78877C]">{label}</p>
+
         <div className={`rounded-xl p-2.5 ${accent}`}>
           <Icon size={20} />
         </div>
       </div>
+
       <p className="mt-3 text-3xl font-semibold text-[#173D35]">
         {value}
       </p>
+
       <p className="mt-1 text-xs text-[#78877C]">{note}</p>
     </div>
   );
@@ -48,9 +51,12 @@ export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingCode, setGeneratingCode] = useState(false);
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -98,16 +104,45 @@ export default function SuppliersPage() {
     return searchableText.includes(search.trim().toLowerCase());
   });
 
-  function openAddForm() {
+  // Open the form and fetch the next supplier code from the backend.
+  async function openAddForm() {
     setEditingId(null);
     setForm({ ...emptyForm });
     setError("");
     setNotice("");
     setShowForm(true);
+    setGeneratingCode(true);
+
+    try {
+      const response = await fetch(`${API_URL}/next-code`);
+      const result = await response.json();
+
+      if (
+        !response.ok ||
+        !result.success ||
+        !result.data?.supplierCode
+      ) {
+        throw new Error(
+          result.message || "Could not generate supplier code."
+        );
+      }
+
+      setForm((previous) => ({
+        ...previous,
+        supplierCode: result.data.supplierCode,
+      }));
+    } catch (err) {
+      setError(
+        err.message || "Could not generate the next supplier code."
+      );
+    } finally {
+      setGeneratingCode(false);
+    }
   }
 
   function openEditForm(supplier) {
     setEditingId(supplier._id);
+
     setForm({
       supplierCode: supplier.supplierCode || "",
       name: supplier.name || "",
@@ -116,6 +151,7 @@ export default function SuppliersPage() {
       email: supplier.email || "",
       address: supplier.address || "",
     });
+
     setError("");
     setNotice("");
     setShowForm(true);
@@ -123,35 +159,60 @@ export default function SuppliersPage() {
 
   function updateField(event) {
     const { name, value } = event.target;
-    setForm((previous) => ({ ...previous, [name]: value }));
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (generatingCode && !editingId) {
+      setError("Please wait for the supplier code to load.");
+      return;
+    }
+
+    if (!editingId && !form.supplierCode) {
+      setError("Supplier code is not available. Close and reopen the form.");
+      return;
+    }
+
     setSaving(true);
     setError("");
     setNotice("");
 
     try {
-      const url = editingId ? `${API_URL}/${editingId}` : API_URL;
+      const url = editingId
+        ? `${API_URL}/${editingId}`
+        : API_URL;
 
       const response = await fetch(url, {
         method: editingId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(form),
       });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.message || "Could not save supplier.");
+        throw new Error(
+          result.message || "Could not save supplier."
+        );
       }
 
+      const savedSupplierCode =
+        result.data?.supplierCode || form.supplierCode;
+
       setShowForm(false);
+
       setNotice(
         editingId
           ? "Supplier updated successfully."
-          : "Supplier added successfully."
+          : `Supplier ${savedSupplierCode} added successfully.`
       );
 
       await loadSuppliers();
@@ -163,14 +224,16 @@ export default function SuppliersPage() {
   }
 
   function closeForm() {
-    if (saving) return;
+    if (saving || generatingCode) return;
+
     setShowForm(false);
     setEditingId(null);
+    setForm({ ...emptyForm });
   }
 
   return (
     <div className="space-y-6 pb-8 text-[#244638]">
-      {/* Page header — matches Stock Batches */}
+      {/* Page header */}
       <header className="flex flex-col justify-between gap-4 rounded-2xl border border-[#dfe8d9] bg-gradient-to-r from-[#e3efdf] via-[#f0f4e9] to-[#fff0e5] p-5 sm:flex-row sm:items-center sm:p-6">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#64816b]">
@@ -204,9 +267,14 @@ export default function SuppliersPage() {
           <button
             type="button"
             onClick={openAddForm}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f684b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#24553b] active:scale-[0.98]"
+            disabled={generatingCode}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f684b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#24553b] active:scale-[0.98] disabled:opacity-60"
           >
-            <Plus size={17} />
+            {generatingCode && !showForm ? (
+              <LoaderCircle size={17} className="animate-spin" />
+            ) : (
+              <Plus size={17} />
+            )}
             Add supplier
           </button>
         </div>
@@ -216,7 +284,9 @@ export default function SuppliersPage() {
       {notice && (
         <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 size={19} />
+
           <span className="flex-1">{notice}</span>
+
           <button
             type="button"
             onClick={() => setNotice("")}
@@ -228,9 +298,14 @@ export default function SuppliersPage() {
       )}
 
       {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
           <AlertCircle size={19} className="mt-0.5 shrink-0" />
+
           <span className="flex-1">{error}</span>
+
           <button
             type="button"
             onClick={() => setError("")}
@@ -258,14 +333,22 @@ export default function SuppliersPage() {
           <div className="flex items-center justify-between gap-3 border-b border-[#E8EAE1] bg-[#F2F5ED] px-5 py-4 sm:px-6">
             <div className="flex items-center gap-3">
               <span className="rounded-xl bg-white p-3 text-[#315E49]">
-                {editingId ? <Pencil size={20} /> : <Building2 size={20} />}
+                {editingId ? (
+                  <Pencil size={20} />
+                ) : (
+                  <Building2 size={20} />
+                )}
               </span>
+
               <div>
                 <h2 className="font-bold text-[#173D35]">
                   {editingId ? "Edit supplier" : "Add a supplier"}
                 </h2>
+
                 <p className="mt-1 text-xs text-[#78877C]">
-                  Enter the supplier's basic details.
+                  {editingId
+                    ? "Update the supplier's details."
+                    : "The supplier code is assigned automatically."}
                 </p>
               </div>
             </div>
@@ -273,7 +356,7 @@ export default function SuppliersPage() {
             <button
               type="button"
               onClick={closeForm}
-              disabled={saving}
+              disabled={saving || generatingCode}
               aria-label="Close form"
               className="rounded-lg p-2 hover:bg-white disabled:opacity-60"
             >
@@ -283,22 +366,38 @@ export default function SuppliersPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5 p-5 sm:p-6">
             <div className="grid gap-4 sm:grid-cols-2">
+              {/* Automatically generated supplier code */}
               <label className="block space-y-2 text-sm font-semibold">
-                Supplier code *
+                Supplier code
                 <span className="relative block">
-                  <Hash
-                    size={16}
-                    className="absolute left-3 top-3.5 text-[#78877C]"
-                  />
+                  {generatingCode ? (
+                    <LoaderCircle
+                      size={16}
+                      className="absolute left-3 top-3.5 animate-spin text-[#78877C]"
+                    />
+                  ) : (
+                    <Hash
+                      size={16}
+                      className="absolute left-3 top-3.5 text-[#78877C]"
+                    />
+                  )}
+
                   <input
                     name="supplierCode"
-                    value={form.supplierCode}
-                    onChange={updateField}
-                    required
-                    maxLength={30}
-                    placeholder="e.g. SUP-001"
-                    className="w-full rounded-xl border border-[#DCE5D8] bg-[#FCFCF8] py-3 pl-10 pr-3 font-normal outline-none focus:border-[#527A61] focus:ring-2 focus:ring-[#DCE5D8]"
+                    value={
+                      form.supplierCode ||
+                      (generatingCode
+                        ? "Generating supplier code..."
+                        : "Code unavailable")
+                    }
+                    readOnly
+                    aria-readonly="true"
+                    className="w-full cursor-not-allowed rounded-xl border border-[#DCE5D8] bg-[#F0F4ED] py-3 pl-10 pr-3 font-semibold text-[#244638] outline-none"
                   />
+                </span>
+
+                <span className="block text-xs font-normal text-[#78877C]">
+                  Generated automatically by Resilio.
                 </span>
               </label>
 
@@ -309,6 +408,7 @@ export default function SuppliersPage() {
                     size={16}
                     className="absolute left-3 top-3.5 text-[#78877C]"
                   />
+
                   <input
                     name="name"
                     value={form.name}
@@ -340,6 +440,7 @@ export default function SuppliersPage() {
                     size={16}
                     className="absolute left-3 top-3.5 text-[#78877C]"
                   />
+
                   <input
                     name="phone"
                     type="tel"
@@ -360,6 +461,7 @@ export default function SuppliersPage() {
                     size={16}
                     className="absolute left-3 top-3.5 text-[#78877C]"
                   />
+
                   <input
                     name="email"
                     type="email"
@@ -377,6 +479,7 @@ export default function SuppliersPage() {
                 <span className="font-normal text-[#78877C]">
                   (optional)
                 </span>
+
                 <input
                   name="address"
                   value={form.address}
@@ -392,7 +495,7 @@ export default function SuppliersPage() {
               <button
                 type="button"
                 onClick={closeForm}
-                disabled={saving}
+                disabled={saving || generatingCode}
                 className="rounded-xl border border-[#DCE5D8] px-5 py-3 text-sm font-semibold hover:bg-[#F7F8F2] disabled:opacity-60"
               >
                 Cancel
@@ -400,12 +503,17 @@ export default function SuppliersPage() {
 
               <button
                 type="submit"
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f684b] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#24553b] disabled:opacity-60"
+                disabled={
+                  saving ||
+                  generatingCode ||
+                  (!editingId && !form.supplierCode)
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f684b] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#24553b] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving && (
                   <LoaderCircle size={17} className="animate-spin" />
                 )}
+
                 {saving
                   ? "Saving..."
                   : editingId
@@ -424,6 +532,7 @@ export default function SuppliersPage() {
             <h2 className="text-lg font-bold text-[#173D35]">
               Supplier list
             </h2>
+
             <p className="mt-1 text-sm text-[#78877C]">
               Contact details for your ingredient suppliers.
             </p>
@@ -434,6 +543,7 @@ export default function SuppliersPage() {
               size={17}
               className="absolute left-3 top-3.5 text-[#78877C]"
             />
+
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -451,14 +561,17 @@ export default function SuppliersPage() {
         ) : filteredSuppliers.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <Users size={30} className="mx-auto text-[#78877C]" />
+
             <h3 className="mt-3 font-bold text-[#173D35]">
               No suppliers found
             </h3>
+
             <p className="mt-2 text-sm text-[#78877C]">
               {search
                 ? "Try a different search."
                 : "Add your first supplier to get started."}
             </p>
+
             {!search && (
               <button
                 type="button"
@@ -484,15 +597,18 @@ export default function SuppliersPage() {
                       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#DCE5D8] font-bold text-[#173D35]">
                         {(supplier.name || "S").slice(0, 1).toUpperCase()}
                       </span>
+
                       <div className="min-w-0">
                         <h3 className="break-words font-bold text-[#173D35]">
                           {supplier.name}
                         </h3>
+
                         <p className="mt-1 text-xs text-[#78877C]">
                           {supplier.supplierCode}
                         </p>
                       </div>
                     </div>
+
                     <button
                       type="button"
                       onClick={() => openEditForm(supplier)}
@@ -504,11 +620,16 @@ export default function SuppliersPage() {
                   </div>
 
                   <div className="mt-4 space-y-3 text-sm text-[#53665B]">
-                    <p>{supplier.contactPerson || "Contact person not added"}</p>
+                    <p>
+                      {supplier.contactPerson ||
+                        "Contact person not added"}
+                    </p>
+
                     <p className="flex items-center gap-2">
                       <Phone size={14} />
                       {supplier.phone || "No phone number"}
                     </p>
+
                     {supplier.email && (
                       <p className="flex items-center gap-2 break-all">
                         <Mail size={14} />
@@ -534,6 +655,7 @@ export default function SuppliersPage() {
                     </th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-[#EEECE4]">
                   {filteredSuppliers.map((supplier) => (
                     <tr
@@ -544,24 +666,29 @@ export default function SuppliersPage() {
                         <p className="font-bold text-[#173D35]">
                           {supplier.name}
                         </p>
+
                         <p className="mt-1 text-xs text-[#78877C]">
                           {supplier.supplierCode}
                         </p>
                       </td>
+
                       <td className="px-6 py-4">
                         {supplier.contactPerson || "—"}
                       </td>
+
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center gap-2">
                           <Phone size={14} className="text-[#78877C]" />
                           {supplier.phone || "—"}
                         </span>
                       </td>
+
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                           Active
                         </span>
                       </td>
+
                       <td className="px-6 py-4 text-right">
                         <button
                           type="button"

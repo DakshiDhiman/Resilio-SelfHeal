@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Search,
   Clock,
@@ -16,6 +16,10 @@ function QueueStatus() {
   const [queueEntry, setQueueEntry] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const location = useLocation();
+  const notification = location.state?.notification;
+
+  console.log("Queue notification:", notification);
 
   const checkStatus = async (event) => {
     event.preventDefault();
@@ -119,6 +123,17 @@ function QueueStatus() {
         </div>
 
         <div className="mt-8 rounded-3xl border border-[#E5E2D9] bg-white p-6 shadow-sm sm:p-8">
+          
+          {notification && (
+    <div
+      role="status"
+      aria-live="polite"
+      className="mb-5 rounded-xl border border-[#DCE5D8] bg-[#DCE5D8] p-4 text-sm text-[#173D35]"
+    >
+      <p className="font-bold">{notification.title}</p>
+      <p className="mt-1 leading-6">{notification.message}</p>
+    </div>
+  )}
           <form onSubmit={checkStatus}>
             <label
               htmlFor="tokenNumber"

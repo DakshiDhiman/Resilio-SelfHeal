@@ -1,4 +1,3 @@
-
 const express = require('express');
 
 const router = express.Router();
@@ -9,6 +8,11 @@ const StockQuantity = require('../datamodels/StockQuantity');
 const StockBatch = require('../datamodels/StockBatch');
 const StockMovement = require('../datamodels/StockMovement');
 const StockAlert = require('../datamodels/StockAlert');
+
+// Round monetary values to two decimal places.
+function roundMoney(value) {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
 
 // GET: Inventory dashboard summary
 router.get('/inventory', async (req, res) => {
@@ -99,7 +103,20 @@ router.get('/inventory', async (req, res) => {
                 item.currentQuantity <= item.minimumStock
         );
 
-        // Group stock quantities by unit so incompatible units
+        // Calculate the total value of all remaining stock.
+        // Each batch may have a different unit cost.
+        const totalStockValue = roundMoney(
+            batches.reduce((total, batch) => {
+                const remainingQuantity =
+                    Number(batch.quantityRemaining) || 0;
+
+                const unitCost = Number(batch.unitCost) || 0;
+
+                return total + remainingQuantity * unitCost;
+            }, 0)
+        );
+
+        // Group quantities by unit so incompatible units
         // are never combined into a misleading total.
         const stockByUnitMap = new Map();
 
@@ -121,9 +138,7 @@ router.get('/inventory', async (req, res) => {
             })
         );
 
-        // Expiry warnings are calculated from batch dates.
-        // These are dashboard calculations, not automatically
-        // created StockAlert documents.
+        // Calculate expiry warnings from batch dates.
         const expiredBatches = [];
         const nearExpiryBatches = [];
         const expiryUnknownBatches = [];
@@ -169,6 +184,9 @@ router.get('/inventory', async (req, res) => {
 
                 outOfStockCount: outOfStockIngredients.length,
                 lowStockCount: lowStockIngredients.length,
+
+                // New dashboard card value.
+                totalStockValue,
 
                 stockByUnit,
 

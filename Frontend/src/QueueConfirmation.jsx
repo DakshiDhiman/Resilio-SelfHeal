@@ -6,6 +6,7 @@ function QueueConfirmation() {
   const navigate = useNavigate();
   const location = useLocation();
   const entry = location.state?.queueEntry;
+  const notification = location.state?.notification;
 
   if (!entry) {
     return (
@@ -38,6 +39,17 @@ function QueueConfirmation() {
         <p className="mt-3 text-[#78877C]">
           Thanks, {entry.customerName}. Your queue entry was created successfully.
         </p>
+
+{notification && (
+  <div
+    role="status"
+    aria-live="polite"
+    className="mt-5 rounded-xl border border-[#DCE5D8] bg-[#DCE5D8] p-4 text-left text-sm text-[#173D35]"
+  >
+    <p className="font-bold">{notification.title}</p>
+    <p className="mt-1 leading-6">{notification.message}</p>
+  </div>
+)}
 
         <div className="mt-8 rounded-2xl bg-[#F7F4EC] px-5 py-7">
           <p className="text-sm font-semibold tracking-wider text-[#78877C]">

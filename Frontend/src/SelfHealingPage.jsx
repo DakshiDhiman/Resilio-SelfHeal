@@ -1,9 +1,9 @@
+
 import { useState } from "react";
 import {
+  RefreshCw,
   ShieldCheck,
   AlertTriangle,
-  Package,
-  CalendarClock,
   Users,
   Zap,
   Search,
@@ -35,43 +35,17 @@ const failureSections = [
     connected: true,
   },
   {
-    id: "expiry",
-    title: "Expiry Failure",
-    subtitle: "Stock Inventory",
+    id: "synchronization-failure",
+    title: "Queue Status Synchronization Failure",
+    subtitle: "Queue Management",
     description:
-      "Identify expired ingredient batches and flag them to prevent unsafe stock usage.",
-    button: "Test Expiry Failure",
-    icon: CalendarClock,
-    color: "text-orange-700",
-    bg: "bg-orange-50",
-    border: "border-orange-200",
-    connected: false,
-  },
-  {
-    id: "low-stock",
-    title: "Low Stock Failure",
-    subtitle: "Inventory Monitoring",
-    description:
-      "Identify stock below its minimum level and trigger a replenishment action or alert.",
-    button: "Test Low Stock",
-    icon: Package,
+      "Detect outdated customer queue statuses and synchronize them with the latest database status.",
+    button: "Inject Chaos",
+    icon: RefreshCw,
     color: "text-blue-700",
     bg: "bg-blue-50",
     border: "border-blue-200",
-    connected: false,
-  },
-  {
-    id: "negative-stock",
-    title: "Negative Stock Failure",
-    subtitle: "Stock Validation",
-    description:
-      "Identify an invalid negative quantity and prevent incorrect inventory updates.",
-    button: "Test Negative Stock",
-    icon: AlertTriangle,
-    color: "text-red-700",
-    bg: "bg-red-50",
-    border: "border-red-200",
-    connected: false,
+    connected: true,
   },
 ];
 
@@ -113,7 +87,11 @@ function stageTitle(stage) {
     resolved: "Resolved Successfully",
     cleanup: "Cleaning Up Test Data",
     notification: "Notification",
+    customer_notified: "Customer Notified",
     recovery_failed: "Recovery Failed",
+    replacement_assigned: "Replacement Token Assigned",
+    verification_started: "Verification in Progress",
+    verification_passed: "Verification Passed",
   };
 
   return titles[stage] || "System Activity";
@@ -123,6 +101,7 @@ function formatTime(timestamp) {
   if (!timestamp) return new Date().toLocaleTimeString();
 
   const date = new Date(timestamp);
+
   return Number.isNaN(date.getTime())
     ? new Date().toLocaleTimeString()
     : date.toLocaleTimeString();
@@ -139,10 +118,8 @@ function normalizeEvent(event) {
 }
 
 function CustomerDetails({ event }) {
-  const customerA =
-    event.customers?.customerA || event.customerA;
-  const customerB =
-    event.customers?.customerB || event.customerB;
+  const customerA = event.customers?.customerA || event.customerA;
+  const customerB = event.customers?.customerB || event.customerB;
 
   if (!customerA && !customerB) return null;
 
@@ -175,15 +152,13 @@ function CustomerDetails({ event }) {
             <p className="mt-1 text-xs text-[#718078]">
               Token:{" "}
               <span className="font-bold text-[#244638]">
-                {customer.token ||
-                  customer.tokenNumber ||
-                  "Not provided"}
+                {customer.token || customer.tokenNumber || "Not provided"}
               </span>
             </p>
 
             {customer.status && (
               <p className="mt-2 text-xs leading-5 text-[#718078]">
-                {customer.status}
+                Status: {customer.status}
               </p>
             )}
           </div>
@@ -226,7 +201,11 @@ export default function SelfHealingPage() {
     });
   }
 
-  async function runDuplicateTokenTest(id) {
+  async function runSelfHealingTest(
+    id,
+    endpoint = "/self-healing/inject-chaos",
+    failureType = "duplicate-token"
+  ) {
     setExpandedId(id);
     setRunningId(id);
     setErrors((previous) => ({ ...previous, [id]: "" }));
@@ -240,8 +219,7 @@ export default function SelfHealingPage() {
           {
             key: "injecting",
             title: "Injecting Failure",
-            description:
-              "Starting the controlled duplicate-token test...",
+            description: `Starting the controlled ${failureType} test...`,
             time: new Date().toLocaleTimeString(),
           },
         ],
@@ -249,38 +227,28 @@ export default function SelfHealingPage() {
     }));
 
     try {
-      const response = await fetch(
-        `${API_URL}/self-healing/inject-chaos`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream, application/json",
-          },
-          body: JSON.stringify({
-            failureType: "duplicate-token",
-          }),
-        }
-      );
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream, application/json",
+        },
+        body: JSON.stringify({ failureType }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+
         throw new Error(
-          errorData.message ||
-            `Request failed with status ${response.status}.`
+          errorData.message || `Request failed with status ${response.status}.`
         );
       }
 
-      const contentType =
-        response.headers.get("content-type") || "";
-
+      const contentType = response.headers.get("content-type") || "";
       let finalResult = null;
 
-      if (
-        contentType.includes("text/event-stream") &&
-        response.body
-      ) {
+      if (contentType.includes("text/event-stream") && response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -299,10 +267,7 @@ export default function SelfHealingPage() {
           try {
             const payload = JSON.parse(rawData);
 
-            if (
-              payload.type === "progress" &&
-              payload.event
-            ) {
+            if (payload.type === "progress" && payload.event) {
               appendEvent(id, payload.event);
             }
 
@@ -316,9 +281,11 @@ export default function SelfHealingPage() {
 
         while (true) {
           const { value, done } = await reader.read();
+
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
+
           const messages = buffer.split(/\r?\n\r?\n/);
           buffer = messages.pop() || "";
 
@@ -326,6 +293,7 @@ export default function SelfHealingPage() {
         }
 
         buffer += decoder.decode();
+
         if (buffer.trim()) processMessage(buffer);
 
         if (!finalResult) {
@@ -334,7 +302,8 @@ export default function SelfHealingPage() {
           );
         }
       } else {
-        finalResult = await response.json();
+        const payload = await response.json();
+        finalResult = payload.result || payload;
       }
 
       const finalEvents = Array.isArray(finalResult.timeline)
@@ -345,9 +314,7 @@ export default function SelfHealingPage() {
         ...previous,
         [id]: {
           ...(previous[id] || {}),
-          currentStage: finalResult.success
-            ? "resolved"
-            : "recovery_failed",
+          currentStage: finalResult.success ? "resolved" : "recovery_failed",
           events: finalEvents.length
             ? finalEvents
             : previous[id]?.events || [],
@@ -390,7 +357,20 @@ export default function SelfHealingPage() {
     setErrors((previous) => ({ ...previous, [section.id]: "" }));
 
     if (section.id === "duplicate-token") {
-      runDuplicateTokenTest(section.id);
+      runSelfHealingTest(
+        section.id,
+        "/self-healing/inject-chaos",
+        "duplicate-token"
+      );
+      return;
+    }
+
+    if (section.id === "synchronization-failure") {
+      runSelfHealingTest(
+        section.id,
+        "/self-healing/synchronization-failure",
+        "synchronization-failure"
+      );
       return;
     }
 
@@ -442,9 +422,7 @@ export default function SelfHealingPage() {
 
     if (stage === "recovering") {
       return events.some((event) =>
-        ["recovery_started", "recovering", "recovered"].includes(
-          event.key
-        )
+        ["recovery_started", "recovering", "recovered"].includes(event.key)
       );
     }
 
@@ -487,8 +465,8 @@ export default function SelfHealingPage() {
           </h1>
 
           <p className="mt-2 max-w-xl text-sm leading-6 text-[#6e8073]">
-            Monitor failures, observe automatic recovery, and verify
-            that your system returns to a healthy state.
+            Monitor failures, observe automatic recovery, and verify that your
+            system returns to a healthy state.
           </p>
         </div>
 
@@ -508,8 +486,8 @@ export default function SelfHealingPage() {
             Failure Simulation Center
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#718078]">
-            Choose a failure scenario to view how Resilio detects
-            the issue, performs recovery, and verifies the result.
+            Choose a failure scenario to view how Resilio detects the issue,
+            performs recovery, and verifies the result.
           </p>
         </div>
       </section>
@@ -569,14 +547,10 @@ export default function SelfHealingPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f684b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#24553b] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isRunning ? (
-                      <LoaderCircle
-                        size={17}
-                        className="animate-spin"
-                      />
+                      <LoaderCircle size={17} className="animate-spin" />
                     ) : (
                       <Zap size={17} />
                     )}
-
                     {isRunning ? "Running Test..." : section.button}
                   </button>
 
@@ -606,7 +580,7 @@ export default function SelfHealingPage() {
                   <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h4 className="font-bold text-[#244638]">
-                        Failure & Recovery Workflow
+                        Failure &amp; Recovery Workflow
                       </h4>
                       <p className="mt-1 text-sm text-[#849087]">
                         Observe each step of the self-healing process.
@@ -621,10 +595,7 @@ export default function SelfHealingPage() {
                         </span>
                       ) : isRunning ? (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">
-                          <LoaderCircle
-                            size={14}
-                            className="animate-spin"
-                          />
+                          <LoaderCircle size={14} className="animate-spin" />
                           In progress
                         </span>
                       ) : result?.demoOnly ? (
@@ -659,20 +630,13 @@ export default function SelfHealingPage() {
                       role="alert"
                       className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
                     >
-                      <AlertTriangle
-                        size={19}
-                        className="mt-0.5 shrink-0"
-                      />
+                      <AlertTriangle size={19} className="mt-0.5 shrink-0" />
                       <div>
-                        <p className="font-semibold">
-                          Test could not finish
-                        </p>
-                        <p className="mt-1 leading-5">
-                          {errors[section.id]}
-                        </p>
+                        <p className="font-semibold">Test could not finish</p>
+                        <p className="mt-1 leading-5">{errors[section.id]}</p>
                         <p className="mt-2 text-xs">
-                          Check that the backend is running and you
-                          are logged in as an admin.
+                          Check that the backend is running and you are logged
+                          in as an admin.
                         </p>
                       </div>
                     </div>
@@ -682,11 +646,7 @@ export default function SelfHealingPage() {
                     {workflowSteps.map((step, stepIndex) => {
                       const StepIcon = step.icon;
                       const complete = hasStage(result, step.key);
-                      const active = isStageActive(
-                        result,
-                        step.key,
-                        isRunning
-                      );
+                      const active = isStageActive(result, step.key, isRunning);
 
                       const relatedEvent = [...(result?.events || [])]
                         .reverse()
@@ -709,20 +669,13 @@ export default function SelfHealingPage() {
                             ].includes(event.key);
                           }
 
-                          return ["recovered", "resolved"].includes(
-                            event.key
-                          );
+                          return ["recovered", "resolved"].includes(event.key);
                         });
 
-                      // Only the two failure stages receive the light-red effect.
                       const isFailureStage =
-                        step.key === "injected" ||
-                        step.key === "detected";
-
+                        step.key === "injected" || step.key === "detected";
                       const failureStageActive =
-                        isFailureStage &&
-                        active &&
-                        isRunning;
+                        isFailureStage && active && isRunning;
 
                       return (
                         <div
@@ -794,8 +747,7 @@ export default function SelfHealingPage() {
                                 : "text-[#718078]"
                             }`}
                           >
-                            {relatedEvent?.description ||
-                              step.description}
+                            {relatedEvent?.description || step.description}
                           </p>
 
                           {relatedEvent?.time && (
@@ -806,10 +758,7 @@ export default function SelfHealingPage() {
                                   : "text-[#89958c]"
                               }`}
                             >
-                              <Clock
-                                size={12}
-                                className="mr-1 inline"
-                              />
+                              <Clock size={12} className="mr-1 inline" />
                               {relatedEvent.time}
                             </p>
                           )}
@@ -835,8 +784,8 @@ export default function SelfHealingPage() {
 
                     {!result?.events?.length ? (
                       <p className="rounded-xl bg-[#fcfdf9] p-4 text-sm text-[#849087]">
-                        Click the button above to begin the failure test.
-                        Each event will appear here.
+                        Click the button above to begin the failure test. Each
+                        event will appear here.
                       </p>
                     ) : (
                       <div className="space-y-4">
@@ -861,13 +810,13 @@ export default function SelfHealingPage() {
                                       ? "bg-red-400"
                                       : event.key === "recovery_failed"
                                       ? "bg-red-500"
-                                      : event.key === "notification"
+                                      : event.key === "notification" ||
+                                        event.key === "customer_notified"
                                       ? "bg-sky-500"
                                       : "bg-[#6b9b78]"
                                   }`}
                                 />
-                                {eventIndex <
-                                  result.events.length - 1 && (
+                                {eventIndex < result.events.length - 1 && (
                                   <span className="mt-1 w-px flex-1 bg-[#e5e9df]" />
                                 )}
                               </div>
@@ -881,8 +830,7 @@ export default function SelfHealingPage() {
                                         : "text-[#244638]"
                                     }`}
                                   >
-                                    {event.title ||
-                                      stageTitle(event.key)}
+                                    {event.title || stageTitle(event.key)}
                                   </p>
 
                                   {event.time && (
@@ -959,14 +907,12 @@ export default function SelfHealingPage() {
                                 {
                                   label: "Customer A",
                                   customer:
-                                    result.finalResult.testResults
-                                      .customerA,
+                                    result.finalResult.testResults.customerA,
                                 },
                                 {
                                   label: "Customer B",
                                   customer:
-                                    result.finalResult.testResults
-                                      .customerB,
+                                    result.finalResult.testResults.customerB,
                                 },
                               ]
                                 .filter((item) => item.customer)
@@ -983,53 +929,148 @@ export default function SelfHealingPage() {
                                       {customer.name || label}
                                     </p>
 
+                                    {customer.mobileNumber && (
+                                      <p className="mt-1 text-xs text-[#718078]">
+                                        Mobile: {customer.mobileNumber}
+                                      </p>
+                                    )}
+
                                     <p className="mt-1 text-xs text-[#718078]">
-                                      Verified token:{" "}
+                                      Token:{" "}
                                       <span className="font-bold text-[#244638]">
                                         {customer.token ||
                                           customer.tokenNumber ||
                                           "Not provided"}
                                       </span>
                                     </p>
+
+                                    {customer.status && (
+                                      <p className="mt-1 text-xs text-[#718078]">
+                                        Status: {customer.status}
+                                      </p>
+                                    )}
                                   </div>
                                 ))}
                             </div>
                           )}
 
+                          {section.id === "synchronization-failure" &&
+                            result.finalResult.testResults && (
+                              <div className="mt-4 rounded-xl border border-[#e5e9df] bg-white p-4">
+                                <h6 className="text-sm font-bold text-[#244638]">
+                                  Queue Status Verification
+                                </h6>
+
+                                <p className="mt-1 text-xs text-[#718078]">
+                                  Comparing the outdated status with the
+                                  corrected database status.
+                                </p>
+
+                                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                                  <div className="rounded-lg bg-red-50 p-3">
+                                    <p className="text-xs text-red-700">
+                                      Before Recovery
+                                    </p>
+                                    <p className="mt-1 font-bold text-red-800">
+                                      {result.finalResult.testResults
+                                        .staleStatus || "Unknown"}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-lg bg-[#f1f6ed] p-3">
+                                    <p className="text-xs text-[#47754e]">
+                                      Database Status
+                                    </p>
+                                    <p className="mt-1 font-bold text-[#244638]">
+                                      {result.finalResult.testResults
+                                        .databaseStatus ||
+                                        result.finalResult.testResults
+                                          .actualStatus ||
+                                        result.finalResult.testResults
+                                          .correctedStatus ||
+                                        "Unknown"}
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-lg bg-green-50 p-3">
+                                    <p className="text-xs text-green-700">
+                                      After Recovery
+                                    </p>
+                                    <p className="mt-1 font-bold text-green-800">
+                                      {result.finalResult.testResults.customerA
+                                        ?.status ||
+                                        result.finalResult.testResults
+                                          .correctedStatus ||
+                                        "Unknown"}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
                           {result.finalResult.verification && (
                             <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                              <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                Duplicate rejected:{" "}
-                                {result.finalResult.verification
-                                  .duplicateRejected
-                                  ? "Verified"
-                                  : "Not verified"}
-                              </span>
+                              {section.id === "synchronization-failure" ? (
+                                <>
+                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
+                                    Status mismatch detected:{" "}
+                                    {result.finalResult.verification
+                                      .mismatchDetected
+                                      ? "Verified"
+                                      : "Not verified"}
+                                  </span>
 
-                              <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                Unique tokens:{" "}
-                                {result.finalResult.verification
-                                  .tokensAreDifferent
-                                  ? "Verified"
-                                  : "Not verified"}
-                              </span>
+                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
+                                    Status synchronized:{" "}
+                                    {result.finalResult.verification.synchronized
+                                      ? "Verified"
+                                      : "Not verified"}
+                                  </span>
 
-                              <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                Test cleanup:{" "}
-                                {result.finalResult.verification
-                                  .cleanupSucceeded
-                                  ? "Complete"
-                                  : "Not confirmed"}
-                              </span>
+                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
+                                    Test cleanup:{" "}
+                                    {result.finalResult.verification
+                                      .cleanupSucceeded
+                                      ? "Complete"
+                                      : "Not confirmed"}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
+                                    Duplicate rejected:{" "}
+                                    {result.finalResult.verification
+                                      .duplicateRejected
+                                      ? "Verified"
+                                      : "Not verified"}
+                                  </span>
+
+                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
+                                    Unique tokens:{" "}
+                                    {result.finalResult.verification
+                                      .tokensAreDifferent
+                                      ? "Verified"
+                                      : "Not verified"}
+                                  </span>
+
+                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
+                                    Test cleanup:{" "}
+                                    {result.finalResult.verification
+                                      .cleanupSucceeded
+                                      ? "Complete"
+                                      : "Not confirmed"}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           )}
 
                           {result.finalResult.durationMs != null && (
                             <p className="mt-3 text-xs text-[#718078]">
                               Recovery duration:{" "}
-                              {(
-                                result.finalResult.durationMs / 1000
-                              ).toFixed(2)}{" "}
+                              {(result.finalResult.durationMs / 1000).toFixed(
+                                2
+                              )}{" "}
                               seconds
                             </p>
                           )}
@@ -1040,14 +1081,11 @@ export default function SelfHealingPage() {
 
                   {result?.demoOnly && (
                     <div className="mt-5 flex gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-800">
-                      <AlertTriangle
-                        size={19}
-                        className="mt-0.5 shrink-0"
-                      />
+                      <AlertTriangle size={19} className="mt-0.5 shrink-0" />
                       <p>
-                        This is a UI preview only. The backend logic for
-                        this failure is not connected yet. No real stock
-                        failure was injected and no inventory was changed.
+                        This is a UI preview only. The backend logic for this
+                        failure is not connected yet. No real stock failure was
+                        injected and no inventory was changed.
                       </p>
                     </div>
                   )}
@@ -1059,9 +1097,9 @@ export default function SelfHealingPage() {
       </div>
 
       <p className="text-xs leading-5 text-[#89958c]">
-        Resilio uses controlled test data for failure simulations.
-        Duplicate queue tokens must be rejected by the database, and
-        temporary test records should be cleaned up after verification.
+        Resilio uses controlled test data for failure simulations. Duplicate
+        queue tokens must be rejected by the database, and temporary test
+        records should be cleaned up after verification.
       </p>
     </div>
   );

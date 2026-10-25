@@ -133,18 +133,39 @@ router.post('/join', async (req, res) => {
             });
         }
 
-        const tokenNumber = await generateToken();
+       
+let tokenNumber = await generateToken();
+let queueEntry;
+let tokenReassigned = false;
 
-        const queueEntry = await Queue.create({
-            customerName: cleanName,
-            mobileNumber: cleanMobile,
-            partySize: people,
-            arrivalType,
-            tokenNumber,
-            status: 'Waiting',
-            estimatedWaitMinutes: 0,
-            arrivalConfirmed: arrivalType === 'onsite'
-        });
+const entryData = {
+    customerName: cleanName,
+    mobileNumber: cleanMobile,
+    partySize: people,
+    arrivalType,
+    tokenNumber,
+    status: 'Waiting',
+    estimatedWaitMinutes: 0,
+    arrivalConfirmed: arrivalType === 'onsite'
+};
+
+try {
+    queueEntry = await Queue.create(entryData);
+} catch (error) {
+    if (error.code !== 11000) {
+        throw error;
+    }
+
+    // Generate a new token if a duplicate-key conflict occurs.
+    tokenNumber = await generateToken();
+    tokenReassigned = true;
+
+    queueEntry = await Queue.create({
+        ...entryData,
+        tokenNumber
+    });
+}
+
 
         await recalculateQueueEstimates();
 
@@ -172,7 +193,16 @@ router.post('/join', async (req, res) => {
                 estimatedWaitMinutes:
                     updatedEntry.estimatedWaitMinutes,
                 joinedAt: updatedEntry.createdAt
-            }
+            },
+             notification: {
+        type: tokenReassigned ? 'token-reassigned' : 'queue-joined',
+        title: tokenReassigned
+            ? 'Your token was updated'
+            : 'Queue joined successfully',
+        message: tokenReassigned
+            ? `A token conflict was detected. Your new token is ${updatedEntry.tokenNumber}. Please use this token to track your queue.`
+            : `You have joined the queue successfully. Your token number is ${updatedEntry.tokenNumber}.`
+    }
         });
     } catch (error) {
         console.error('Join queue error:', error);

@@ -1,15 +1,56 @@
-
 const express = require('express');
 const mongoose = require('mongoose');
 
 const router = express.Router();
 const Supplier = require('../datamodels/Supplier');
 
-// CREATE: Add a supplier
+// Generate the next sequential supplier code.
+async function generateNextSupplierCode() {
+    const [totalCount, numberedSuppliers] = await Promise.all([
+        Supplier.countDocuments(),
+        Supplier.find({
+            supplierCode: /^SUP-\d+$/i
+        })
+            .select('supplierCode')
+            .lean()
+    ]);
+
+    const highestNumber = numberedSuppliers.reduce((highest, supplier) => {
+        const match = supplier.supplierCode.match(/^SUP-(\d+)$/i);
+
+        return match
+            ? Math.max(highest, Number(match[1]))
+            : highest;
+    }, 0);
+
+    const nextNumber = Math.max(totalCount, highestNumber) + 1;
+
+    return `SUP-${String(nextNumber).padStart(3, '0')}`;
+}
+
+// PREVIEW: Get the next supplier code when Add Supplier opens.
+router.get('/next-code', async (req, res) => {
+    try {
+        const supplierCode = await generateNextSupplierCode();
+
+        res.status(200).json({
+            success: true,
+            data: { supplierCode }
+        });
+    } catch (error) {
+        console.error('Supplier code generation error:', error);
+
+        res.status(500).json({
+            success: false,
+            message: 'Could not generate the next supplier code.'
+        });
+    }
+});
+
+// CREATE: Add a supplier with an automatically generated code.
 router.post('/', async (req, res) => {
     try {
         const {
-            supplierCode,
             name,
             contactPerson,
             phone,
@@ -17,31 +58,64 @@ router.post('/', async (req, res) => {
             address
         } = req.body;
 
-        const supplier = await Supplier.create({
-            supplierCode,
-            name,
-            contactPerson,
-            phone,
-            email,
-            address
-        });
+        let supplier = null;
+
+        // Retry a duplicate-code collision if another request
+        // creates the same code at the same time.
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const supplierCode = await generateNextSupplierCode();
+
+            try {
+                supplier = await Supplier.create({
+                    supplierCode,
+                    name,
+                    contactPerson,
+                    phone,
+                    email,
+                    address
+                });
+
+                break;
+            } catch (error) {
+                const supplierCodeConflict =
+                    error.code === 11000 &&
+                    (
+                        error.keyPattern?.supplierCode ||
+                        error.message?.includes('supplierCode_1')
+                    );
+
+                if (supplierCodeConflict && attempt < 4) {
+                    continue;
+                }
+
+                throw error;
+            }
+        }
+
+        if (!supplier) {
+            throw new Error(
+                'Could not generate a unique supplier code. Please try again.'
+            );
+        }
 
         res.status(201).json({
             success: true,
-            message: 'Supplier added successfully.',
+            message: `Supplier added successfully. Supplier code: ${supplier.supplierCode}`,
             data: supplier
         });
     } catch (error) {
+        console.error('Add supplier error:', error);
+
         res.status(error.code === 11000 ? 409 : 400).json({
             success: false,
             message: error.code === 11000
-                ? 'Supplier code already exists.'
+                ? 'A duplicate supplier code or other unique value already exists.'
                 : error.message
         });
     }
 });
 
-// READ: Get all active suppliers
+// READ: Get all active suppliers.
 // Use ?includeInactive=true to include deactivated suppliers.
 router.get('/', async (req, res) => {
     try {
@@ -66,7 +140,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// READ: Get one supplier by ID
+// READ: Get one supplier by ID.
 router.get('/:id', async (req, res) => {
     try {
         if (!mongoose.isValidObjectId(req.params.id)) {
@@ -97,7 +171,8 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// UPDATE: Edit supplier details
+// UPDATE: Edit supplier details.
+// The automatically generated supplier code is not editable.
 router.put('/:id', async (req, res) => {
     try {
         if (!mongoose.isValidObjectId(req.params.id)) {
@@ -108,7 +183,6 @@ router.put('/:id', async (req, res) => {
         }
 
         const allowedFields = [
-            'supplierCode',
             'name',
             'contactPerson',
             'phone',
@@ -156,14 +230,14 @@ router.put('/:id', async (req, res) => {
         res.status(error.code === 11000 ? 409 : 400).json({
             success: false,
             message: error.code === 11000
-                ? 'Supplier code already exists.'
+                ? 'A duplicate value already exists.'
                 : error.message
         });
     }
 });
 
-// DELETE: Soft-delete a supplier
-// The supplier document and its historical references are preserved.
+// DELETE: Soft-delete a supplier.
+// Historical records remain preserved.
 router.delete('/:id', async (req, res) => {
     try {
         if (!mongoose.isValidObjectId(req.params.id)) {

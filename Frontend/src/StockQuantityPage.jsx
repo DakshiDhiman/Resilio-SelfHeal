@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Package,
@@ -8,7 +7,21 @@ import {
   RefreshCw,
   Boxes,
   Leaf,
+  Wallet,
 } from "lucide-react";
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+}
+
+function formatQuantity(value) {
+  return (Number(value) || 0).toLocaleString("en-IN");
+}
 
 function StockBadge({ quantity, minimumStock }) {
   if (quantity <= 0) {
@@ -38,15 +51,17 @@ function SummaryCard({ icon, label, value, description, color }) {
   return (
     <div className="rounded-2xl border border-[#E8E5DA] bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm text-[#78877C]">{label}</p>
-          <p className="mt-3 text-3xl font-bold text-[#244638]">
+
+          <p className="mt-3 break-words text-2xl font-bold text-[#244638] sm:text-3xl">
             {value}
           </p>
+
           <p className="mt-2 text-xs text-[#78877C]">{description}</p>
         </div>
 
-        <div className={`rounded-xl p-3 ${color}`}>
+        <div className={`shrink-0 rounded-xl p-3 ${color}`}>
           {icon}
         </div>
       </div>
@@ -101,6 +116,31 @@ export default function StockQuantityPage() {
           ? record.ingredientId
           : {};
 
+      // Use the stock value calculated by the backend.
+      // Fallback to the remaining batch values if necessary.
+      const batches = Array.isArray(record.batches)
+        ? record.batches
+        : [];
+
+      const calculatedValue = batches.reduce((total, batch) => {
+        const remainingQuantity =
+          Number(batch.quantityRemaining) || 0;
+
+        const unitCost = Number(batch.unitCost) || 0;
+
+        const batchValue =
+          batch.lineValue != null
+            ? Number(batch.lineValue) || 0
+            : remainingQuantity * unitCost;
+
+        return total + batchValue;
+      }, 0);
+
+      const stockValue =
+        record.stockValue != null
+          ? Number(record.stockValue) || 0
+          : calculatedValue;
+
       return {
         id: record._id,
         name: ingredient.name || "Unknown ingredient",
@@ -111,6 +151,7 @@ export default function StockQuantityPage() {
           ingredient.minimumStock == null
             ? null
             : Number(ingredient.minimumStock),
+        stockValue,
       };
     });
   }, [quantities]);
@@ -124,6 +165,13 @@ export default function StockQuantityPage() {
       `${item.name} ${item.code}`.toLowerCase().includes(term)
     );
   }, [inventory, search]);
+
+  const totalStockValue = useMemo(() => {
+    return inventory.reduce(
+      (total, item) => total + item.stockValue,
+      0
+    );
+  }, [inventory]);
 
   const lowStock = inventory.filter(
     (item) =>
@@ -140,10 +188,10 @@ export default function StockQuantityPage() {
     <div className="space-y-6 pb-8 text-[#244638]">
       {/* Page heading */}
       <header className="flex flex-col justify-between gap-5 rounded-2xl border border-[#dfe8d9] bg-gradient-to-r from-[#e3efdf] via-[#f0f4e9] to-[#fff0e5] p-6 sm:flex-row sm:items-center">
-        <div >
-          <div  className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#64816b]">
-              <Leaf size={15} />
-            INVENTORY MANAGEMENT         
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#64816b]">
+            <Leaf size={15} />
+            INVENTORY MANAGEMENT
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-[#244638] sm:text-3xl">
@@ -151,7 +199,7 @@ export default function StockQuantityPage() {
           </h1>
 
           <p className="mt-1.5 text-sm leading-6 text-[#6e8073]">
-            Check available ingredient quantities and stock levels.
+            Check available ingredient quantities, stock values, and stock levels.
           </p>
         </div>
 
@@ -159,7 +207,7 @@ export default function StockQuantityPage() {
           type="button"
           onClick={() => loadInventory(true)}
           disabled={loading || refreshing}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#173D35] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#245548] disabled:opacity-60"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#173D35] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#245548] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw
             size={16}
@@ -169,10 +217,11 @@ export default function StockQuantityPage() {
         </button>
       </header>
 
-      {/* Error */}
+      {/* Error message */}
       {error && (
         <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
           <p>{error}</p>
+
           <button
             type="button"
             onClick={() => loadInventory(true)}
@@ -184,12 +233,20 @@ export default function StockQuantityPage() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           icon={<Package size={22} />}
           label="Ingredients"
           value={inventory.length}
           description="Tracked stock records"
+          color="bg-[#DCE5D8] text-[#173D35]"
+        />
+
+        <SummaryCard
+          icon={<Wallet size={22} />}
+          label="Total Stock Value"
+          value={formatCurrency(totalStockValue)}
+          description="Value of all remaining stock"
           color="bg-[#DCE5D8] text-[#173D35]"
         />
 
@@ -210,7 +267,7 @@ export default function StockQuantityPage() {
         />
       </div>
 
-      {/* Inventory list */}
+      {/* Inventory table */}
       <section className="overflow-hidden rounded-2xl border border-[#E8E5DA] bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-[#E8E5DA] p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -218,8 +275,9 @@ export default function StockQuantityPage() {
               <Boxes size={20} />
               Available Stock
             </h2>
+
             <p className="mt-1 text-sm text-[#78877C]">
-              Current quantity for each ingredient.
+              Current quantity and total monetary value of each ingredient.
             </p>
           </div>
 
@@ -228,6 +286,7 @@ export default function StockQuantityPage() {
               size={17}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-[#78877C]"
             />
+
             <input
               type="search"
               value={search}
@@ -257,7 +316,7 @@ export default function StockQuantityPage() {
             <p className="mt-2 text-sm text-[#78877C]">
               {search
                 ? "Try another ingredient name or code."
-                : "Record stock through your existing stock-in process to see quantities here."}
+                : "Record stock through your stock-in process to see quantities here."}
             </p>
           </div>
         ) : (
@@ -268,13 +327,28 @@ export default function StockQuantityPage() {
 
             {/* Desktop table */}
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full text-left text-sm">
+              <table className="w-full min-w-[850px] text-left text-sm">
                 <thead className="bg-[#F7F4EC] text-xs uppercase tracking-wide text-[#78877C]">
                   <tr>
-                    <th className="px-5 py-4 font-semibold">Ingredient</th>
-                    <th className="px-5 py-4 font-semibold">Available Quantity</th>
-                    <th className="px-5 py-4 font-semibold">Minimum Stock</th>
-                    <th className="px-5 py-4 font-semibold">Status</th>
+                    <th className="px-5 py-4 font-semibold">
+                      Ingredient
+                    </th>
+
+                    <th className="px-5 py-4 font-semibold">
+                      Available Quantity
+                    </th>
+
+                    <th className="px-5 py-4 font-semibold">
+                      Total Stock Value
+                    </th>
+
+                    <th className="px-5 py-4 font-semibold">
+                      Minimum Stock
+                    </th>
+
+                    <th className="px-5 py-4 font-semibold">
+                      Status
+                    </th>
                   </tr>
                 </thead>
 
@@ -288,19 +362,26 @@ export default function StockQuantityPage() {
                         <p className="font-semibold text-[#244638]">
                           {item.name}
                         </p>
+
                         <p className="mt-1 text-xs text-[#78877C]">
                           {item.code}
                         </p>
                       </td>
 
-                      <td className="px-5 py-4 font-semibold text-[#244638]">
-                        {item.quantity.toLocaleString("en-IN")} {item.unit}
+                      <td className="whitespace-nowrap px-5 py-4 font-semibold text-[#244638]">
+                        {formatQuantity(item.quantity)} {item.unit}
                       </td>
 
-                      <td className="px-5 py-4 text-[#78877C]">
+                      <td className="whitespace-nowrap px-5 py-4">
+                        <span className="font-bold text-[#244638]">
+                          {formatCurrency(item.stockValue)}
+                        </span>
+                      </td>
+
+                      <td className="whitespace-nowrap px-5 py-4 text-[#78877C]">
                         {item.minimumStock == null
                           ? "Not set"
-                          : `${item.minimumStock.toLocaleString("en-IN")} ${item.unit}`}
+                          : `${formatQuantity(item.minimumStock)} ${item.unit}`}
                       </td>
 
                       <td className="px-5 py-4">
@@ -327,6 +408,7 @@ export default function StockQuantityPage() {
                       <h3 className="font-semibold text-[#244638]">
                         {item.name}
                       </h3>
+
                       <p className="mt-1 text-xs text-[#78877C]">
                         {item.code}
                       </p>
@@ -340,21 +422,33 @@ export default function StockQuantityPage() {
 
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <span className="text-sm text-[#78877C]">
-                      Available
+                      Available Quantity
                     </span>
-                    <span className="font-semibold text-[#244638]">
-                      {item.quantity.toLocaleString("en-IN")} {item.unit}
+
+                    <span className="text-right font-semibold text-[#244638]">
+                      {formatQuantity(item.quantity)} {item.unit}
                     </span>
                   </div>
 
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <span className="text-sm text-[#78877C]">
-                      Minimum stock
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-[#F1F6ED] p-3">
+                    <span className="text-sm text-[#47754E]">
+                      Total Stock Value
                     </span>
+
+                    <span className="text-right font-bold text-[#244638]">
+                      {formatCurrency(item.stockValue)}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-sm text-[#78877C]">
+                      Minimum Stock
+                    </span>
+
                     <span className="text-sm text-[#244638]">
                       {item.minimumStock == null
                         ? "Not set"
-                        : `${item.minimumStock.toLocaleString("en-IN")} ${item.unit}`}
+                        : `${formatQuantity(item.minimumStock)} ${item.unit}`}
                     </span>
                   </div>
                 </article>

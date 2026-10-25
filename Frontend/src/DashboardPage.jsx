@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useState } from "react";
 import {
   Package,
@@ -17,6 +16,7 @@ import {
   ArrowRight,
   Boxes,
   Leaf,
+  Wallet,
 } from "lucide-react";
 
 const API_URL = "/api/dashboard/inventory";
@@ -47,6 +47,15 @@ function formatNumber(value) {
   });
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+}
+
 function getName(item) {
   if (typeof item?.ingredient === "object") {
     return item.ingredient?.name || "Unknown ingredient";
@@ -55,7 +64,14 @@ function getName(item) {
   return item?.name || item?.ingredientId?.name || "Unknown ingredient";
 }
 
-function StatCard({ title, value, description, icon: Icon, tone }) {
+function StatCard({
+  title,
+  value,
+  description,
+  icon: Icon,
+  tone,
+  currency = false,
+}) {
   const tones = {
     green: "bg-[#e8f3e8] text-[#356c45]",
     amber: "bg-[#fff1dd] text-[#a96a22]",
@@ -68,16 +84,26 @@ function StatCard({ title, value, description, icon: Icon, tone }) {
     <div className="h-full rounded-2xl border border-[#dfe8d9] bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-[#718078]">{title}</p>
-          <p className="mt-3 text-3xl font-semibold tracking-tight text-[#244638]">
-            {formatNumber(value)}
+          <p className="text-sm font-medium text-[#718078]">
+            {title}
           </p>
+
+          <p className="mt-3 break-words text-2xl font-semibold tracking-tight text-[#244638] sm:text-3xl">
+            {currency
+              ? formatCurrency(value)
+              : formatNumber(value)}
+          </p>
+
           <p className="mt-2 text-xs leading-5 text-[#89958c]">
             {description}
           </p>
         </div>
 
-        <div className={`shrink-0 rounded-xl p-3 ${tones[tone] || tones.green}`}>
+        <div
+          className={`shrink-0 rounded-xl p-3 ${
+            tones[tone] || tones.green
+          }`}
+        >
           <Icon size={21} />
         </div>
       </div>
@@ -91,8 +117,10 @@ function SectionHeading({ title, description, icon: Icon }) {
       <div className="rounded-xl border border-[#dfe8d9] bg-[#edf3eb] p-2.5 text-[#426c56]">
         <Icon size={19} />
       </div>
+
       <div>
         <h2 className="font-semibold text-[#244638]">{title}</h2>
+
         <p className="mt-1 text-xs leading-5 text-[#89958c]">
           {description}
         </p>
@@ -117,6 +145,7 @@ function HealthBar({ label, count, total, color, background }) {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm text-[#53645a]">{label}</span>
+
         <span className="text-sm font-semibold text-[#244638]">
           {formatNumber(count)}
         </span>
@@ -196,6 +225,8 @@ export default function DashboardPage({ onNavigate }) {
   const totalIngredients = Number(summary.activeIngredientCount || 0);
   const lowCount = Number(summary.lowStockCount ?? lowStock.length);
   const outCount = Number(summary.outOfStockCount ?? outOfStock.length);
+
+  const totalStockValue = Number(summary.totalStockValue || 0);
 
   const healthyCount = Math.max(
     totalIngredients - lowCount - outCount,
@@ -285,11 +316,14 @@ export default function DashboardPage({ onNavigate }) {
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <div className="flex items-start gap-2">
             <CircleAlert size={19} className="mt-0.5 shrink-0" />
+
             <div className="flex-1">
               <p className="font-semibold">
                 Dashboard data could not be loaded
               </p>
+
               <p className="mt-1">{error}</p>
+
               <button
                 onClick={loadDashboard}
                 className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 font-medium transition hover:bg-red-50"
@@ -302,13 +336,22 @@ export default function DashboardPage({ onNavigate }) {
       )}
 
       {/* Main status cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="Total ingredients"
           value={summary.activeIngredientCount}
           description="Active ingredients registered"
           icon={Package}
           tone="green"
+        />
+
+        <StatCard
+          title="Total stock value"
+          value={totalStockValue}
+          description="Value of all remaining stock"
+          icon={Wallet}
+          tone="green"
+          currency
         />
 
         <StatCard
@@ -400,14 +443,17 @@ export default function DashboardPage({ onNavigate }) {
               <span className="rounded-lg bg-[#e8f3e8] p-2.5 text-[#356c45]">
                 <Package size={19} />
               </span>
+
               <span className="flex-1">
                 <span className="block text-sm font-semibold text-[#244638]">
                   Manage ingredients
                 </span>
+
                 <span className="mt-1 block text-xs text-[#89958c]">
                   Add or update ingredient records
                 </span>
               </span>
+
               <ArrowRight size={16} className="text-[#89958c]" />
             </button>
 
@@ -418,14 +464,17 @@ export default function DashboardPage({ onNavigate }) {
               <span className="rounded-lg bg-[#eef1f8] p-2.5 text-[#566a96]">
                 <Truck size={19} />
               </span>
+
               <span className="flex-1">
                 <span className="block text-sm font-semibold text-[#244638]">
                   View stock batches
                 </span>
+
                 <span className="mt-1 block text-xs text-[#89958c]">
                   Check batch and expiry details
                 </span>
               </span>
+
               <ArrowRight size={16} className="text-[#89958c]" />
             </button>
 
@@ -436,14 +485,17 @@ export default function DashboardPage({ onNavigate }) {
               <span className="rounded-lg bg-[#fff1dd] p-2.5 text-[#a96a22]">
                 <ArrowDownToLine size={19} />
               </span>
+
               <span className="flex-1">
                 <span className="block text-sm font-semibold text-[#244638]">
                   Stock movements
                 </span>
+
                 <span className="mt-1 block text-xs text-[#89958c]">
                   Review stock-in and stock-out records
                 </span>
               </span>
+
               <ArrowRight size={16} className="text-[#89958c]" />
             </button>
 
@@ -454,14 +506,17 @@ export default function DashboardPage({ onNavigate }) {
               <span className="rounded-lg bg-[#f9e9e4] p-2.5 text-[#ad5a43]">
                 <CircleAlert size={19} />
               </span>
+
               <span className="flex-1">
                 <span className="block text-sm font-semibold text-[#244638]">
                   Review alerts
                 </span>
+
                 <span className="mt-1 block text-xs text-[#89958c]">
                   Investigate inventory problems
                 </span>
               </span>
+
               <ArrowRight size={16} className="text-[#89958c]" />
             </button>
           </div>
@@ -509,6 +564,7 @@ export default function DashboardPage({ onNavigate }) {
                       <p className="truncate text-sm font-semibold text-[#244638]">
                         {item.name || "Unknown ingredient"}
                       </p>
+
                       <p className="mt-1 text-xs text-[#89958c]">
                         Minimum: {formatNumber(item.minimumStock)}{" "}
                         {item.unit || ""}
@@ -525,6 +581,7 @@ export default function DashboardPage({ onNavigate }) {
                       >
                         {item.displayStatus}
                       </span>
+
                       <p className="mt-1 text-xs text-[#718078]">
                         Available: {formatNumber(item.currentQuantity)}{" "}
                         {item.unit || ""}
@@ -566,6 +623,7 @@ export default function DashboardPage({ onNavigate }) {
                     <p className="truncate text-sm font-semibold text-[#244638]">
                       {getName(item)}
                     </p>
+
                     <p className="mt-1 text-xs text-[#89958c]">
                       Batch: {item.batchCode || "—"}
                     </p>
@@ -583,6 +641,7 @@ export default function DashboardPage({ onNavigate }) {
                     >
                       {item.statusLabel}
                     </span>
+
                     <p className="mt-1 text-xs text-[#718078]">
                       {formatDate(item.expiryDate)}
                     </p>
@@ -621,6 +680,7 @@ export default function DashboardPage({ onNavigate }) {
                   <th className="px-4 py-3 font-medium">Date</th>
                 </tr>
               </thead>
+
               <tbody className="divide-y divide-[#eee9df]">
                 {movements.slice(0, 5).map((item, index) => {
                   const isStockIn = item.movementType === "Stock In";
@@ -633,6 +693,7 @@ export default function DashboardPage({ onNavigate }) {
                       <td className="px-4 py-3 font-medium text-[#244638]">
                         {item.ingredientId?.name || "Unknown ingredient"}
                       </td>
+
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -646,12 +707,15 @@ export default function DashboardPage({ onNavigate }) {
                           ) : (
                             <ArrowUpFromLine size={13} />
                           )}
+
                           {item.movementType || "Movement"}
                         </span>
                       </td>
+
                       <td className="px-4 py-3 text-[#53645a]">
                         {formatNumber(item.quantity)} {item.unit || ""}
                       </td>
+
                       <td className="px-4 py-3 text-[#718078]">
                         {formatDate(item.movementDate)}
                       </td>
@@ -696,12 +760,14 @@ export default function DashboardPage({ onNavigate }) {
                     size={18}
                     className="mt-0.5 shrink-0 text-[#a96a22]"
                   />
+
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-[#244638]">
                       {item.ingredientId?.name ||
                         item.title ||
                         "Inventory alert"}
                     </p>
+
                     <p className="mt-1 text-xs leading-5 text-[#718078]">
                       {item.message ||
                         item.description ||
@@ -709,6 +775,7 @@ export default function DashboardPage({ onNavigate }) {
                         "Review this inventory alert."}
                     </p>
                   </div>
+
                   <span className="shrink-0 rounded-full bg-[#fff1dd] px-2 py-1 text-xs font-medium text-[#a96a22]">
                     {item.status || "Open"}
                   </span>
@@ -727,8 +794,10 @@ export default function DashboardPage({ onNavigate }) {
             <div className="rounded-xl border border-white/10 bg-white/10 p-3">
               <ShieldCheck size={23} />
             </div>
+
             <div>
               <h2 className="font-semibold">Resilio Protection</h2>
+
               <p className="mt-1 text-sm leading-6 text-white/75">
                 Monitor inventory failures and review recovery activity.
                 Alerts indicate problems; automatic recovery must be
@@ -739,9 +808,11 @@ export default function DashboardPage({ onNavigate }) {
 
           <div className="mt-5 rounded-xl border border-white/15 bg-white/5 p-4">
             <p className="text-xs text-white/60">Open inventory alerts</p>
+
             <p className="mt-2 text-3xl font-semibold">
               {formatNumber(summary.openAlertCount ?? openAlerts.length)}
             </p>
+
             <p className="mt-1 text-xs text-white/60">
               Issues that may need investigation
             </p>
@@ -762,6 +833,7 @@ export default function DashboardPage({ onNavigate }) {
         <span className="font-medium tracking-[0.12em]">
           RESILIO · INVENTORY DASHBOARD
         </span>
+
         <span>Last updated: {formatDate(data?.generatedAt)}</span>
       </footer>
     </section>
