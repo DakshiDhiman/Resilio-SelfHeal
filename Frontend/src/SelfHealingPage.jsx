@@ -16,6 +16,8 @@ import {
   RotateCcw,
   Activity,
   Leaf,
+  CalendarClock,
+  PackageCheck,
 } from "lucide-react";
 
 const API_URL = "/api";
@@ -32,7 +34,6 @@ const failureSections = [
     color: "text-violet-700",
     bg: "bg-violet-50",
     border: "border-violet-200",
-    connected: true,
   },
   {
     id: "synchronization-failure",
@@ -45,8 +46,31 @@ const failureSections = [
     color: "text-blue-700",
     bg: "bg-blue-50",
     border: "border-blue-200",
-    connected: true,
   },
+  {
+    id: "expired-stock",
+    title: "Expired Stock Detection & Auto-Recovery",
+    subtitle: "Inventory Management",
+    description:
+      "Detect expired stock batches, remove expired quantities from usable inventory, and verify recovery.",
+    button: "Inject Chaos",
+    icon: CalendarClock,
+    color: "text-orange-700",
+    bg: "bg-orange-50",
+    border: "border-orange-200",
+  },
+  {
+  id: "offline-inventory-recovery",
+  title: "Offline Inventory Recovery",
+  subtitle: "Inventory Management",
+  description:
+    "Restore inventory consistency after the database connection returns and verify recovery for all ingredients.",
+  button: "Run Recovery",
+  icon: PackageCheck,
+  color: "text-emerald-700",
+  bg: "bg-emerald-50",
+  border: "border-emerald-200",
+},
 ];
 
 const workflowSteps = [
@@ -167,6 +191,259 @@ function CustomerDetails({ event }) {
   );
 }
 
+function EventDetailsTable({ event }) {
+  const excludedKeys = [
+    "stage",
+    "key",
+    "title",
+    "message",
+    "description",
+    "timestamp",
+    "time",
+    "customers",
+    "batches",
+  ];
+
+  const details = Object.entries(event).filter(
+    ([key, value]) =>
+      !excludedKeys.includes(key) &&
+      value !== undefined &&
+      value !== null &&
+      typeof value !== "object"
+  );
+
+  const batches = Array.isArray(event.batches) ? event.batches : [];
+
+  const formatLabel = (key) =>
+    key
+      .replace(/([A-Z])/g, " $1")
+      .replace(/^./, (char) => char.toUpperCase());
+
+  const formatValue = (value) => {
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+
+    if (
+      typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2}T/.test(value)
+    ) {
+      return new Date(value).toLocaleString();
+    }
+
+    return String(value);
+  };
+
+  if (!details.length && !batches.length) return null;
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-[#e5e9df] bg-white">
+      {details.length > 0 && (
+        <>
+          <div className="border-b border-[#e5e9df] bg-[#f5f8f1] px-4 py-3">
+            <h6 className="text-xs font-bold uppercase tracking-wide text-[#47754e]">
+              Step Details
+            </h6>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <tbody>
+                {details.map(([key, value]) => (
+                  <tr
+                    key={key}
+                    className="border-b border-[#edf0e9] last:border-0"
+                  >
+                    <th className="w-2/5 px-4 py-3 font-semibold text-[#536359]">
+                      {formatLabel(key)}
+                    </th>
+                    <td className="break-words px-4 py-3 text-[#244638]">
+                      {formatValue(value)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {batches.length > 0 && (
+        <>
+          <div className="border-t border-[#e5e9df] bg-[#f5f8f1] px-4 py-3">
+            <h6 className="text-xs font-bold uppercase tracking-wide text-[#47754e]">
+              Affected Stock Batches
+            </h6>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#fafbf8] text-[#536359]">
+                <tr>
+                  <th className="px-3 py-3">Batch Code</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Expiry Date</th>
+                  <th className="px-3 py-3">Remaining Qty</th>
+                  <th className="px-3 py-3">Expired Qty</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {batches.map((batch, index) => (
+                  <tr
+                    key={batch.batchCode || index}
+                    className="border-t border-[#edf0e9]"
+                  >
+                    <td className="px-3 py-3 font-semibold text-[#244638]">
+                      {batch.batchCode || "—"}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="rounded-full bg-orange-50 px-2 py-1 text-orange-700">
+                        {batch.status || "—"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-[#536359]">
+                      {batch.expiryDate
+                        ? new Date(batch.expiryDate).toLocaleDateString()
+                        : "Not recorded"}
+                    </td>
+                    <td className="px-3 py-3 text-[#536359]">
+                      {batch.remainingQuantity ??
+                        batch.quantityRemaining ??
+                        "—"}
+                    </td>
+                    <td className="px-3 py-3 text-[#536359]">
+                      {batch.expiredQuantity ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RecoverySummaryTable({ summary }) {
+  if (!summary) return null;
+
+  const rows = [
+    ["Failure Injected", summary.failureInjected],
+    ["Failure Detected", summary.failureDetected],
+    ["Automatic Recovery", summary.recovered],
+    ["Verification Passed", summary.verificationPassed],
+    ["Cleanup Completed", summary.cleanupCompleted],
+    ["Batches Recovered", summary.batchesRecovered],
+    ["Temporary Batch Removed", summary.temporaryBatchRemoved],
+  ].filter(([, value]) => value !== undefined && value !== null);
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#dce8d7] bg-white">
+      <div className="border-b border-[#dce8d7] bg-[#f1f6ed] px-4 py-3">
+        <h6 className="text-sm font-bold text-[#244638]">
+          Expired Stock Recovery Summary
+        </h6>
+        <p className="mt-1 text-xs text-[#718078]">
+          Results reported by the backend recovery process
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-[#fafbf8] text-[#536359]">
+            <tr>
+              <th className="px-4 py-3">Recovery Check</th>
+              <th className="px-4 py-3">Result</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map(([label, value]) => (
+              <tr key={label} className="border-t border-[#e5e9df]">
+                <td className="px-4 py-3 font-medium text-[#536359]">
+                  {label}
+                </td>
+                <td className="px-4 py-3 font-semibold text-[#244638]">
+                  {typeof value === "boolean"
+                    ? value
+                      ? "Successful"
+                      : "Not completed"
+                    : value}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function VerificationTable({ section, verification }) {
+  if (!verification) return null;
+
+  let rows = [];
+
+  if (section.id === "expired-stock") {
+    rows = [
+      [
+        "Expired Stock Remaining",
+        verification.remainingExpiredStock ?? "Unknown",
+      ],
+      [
+        "No Expired Stock Remaining",
+        verification.noExpiredStockRemaining,
+      ],
+    ];
+  } else if (section.id === "offline-inventory-recovery") {
+  rows = [
+    ["Database Connected", verification.databaseConnected],
+    ["Recovery Verified", verification.recoveryVerified],
+  ];
+  } else if (section.id === "synchronization-failure") {
+    rows = [
+      ["Status Mismatch Detected", verification.mismatchDetected],
+      ["Status Synchronized", verification.synchronized],
+      ["Test Cleanup", verification.cleanupSucceeded],
+    ];
+  } else {
+    rows = [
+      ["Duplicate Rejected", verification.duplicateRejected],
+      ["Unique Tokens", verification.tokensAreDifferent],
+      ["Test Cleanup", verification.cleanupSucceeded],
+    ];
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#e5e9df] bg-white">
+      <div className="border-b border-[#e5e9df] bg-[#f5f8f1] px-4 py-3">
+        <h6 className="text-sm font-bold text-[#244638]">
+          Verification Results
+        </h6>
+      </div>
+
+      <table className="w-full text-left text-sm">
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label} className="border-t border-[#edf0e9] first:border-0">
+              <td className="px-4 py-3 text-[#536359]">{label}</td>
+              <td className="px-4 py-3 font-semibold text-[#244638]">
+                {typeof value === "boolean"
+                  ? value
+                    ? "Verified"
+                    : "Not verified"
+                  : value}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function SelfHealingPage() {
   const [expandedId, setExpandedId] = useState(null);
   const [runningId, setRunningId] = useState(null);
@@ -239,7 +516,6 @@ export default function SelfHealingPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-
         throw new Error(
           errorData.message || `Request failed with status ${response.status}.`
         );
@@ -350,49 +626,47 @@ export default function SelfHealingPage() {
     }
   }
 
-  function runDemo(section) {
-    if (runningId) return;
+ function runDemo(section) {
+  if (runningId) return;
 
-    setExpandedId(section.id);
-    setErrors((previous) => ({ ...previous, [section.id]: "" }));
+  setExpandedId(section.id);
+  setErrors((previous) => ({ ...previous, [section.id]: "" }));
 
-    if (section.id === "duplicate-token") {
-      runSelfHealingTest(
-        section.id,
-        "/self-healing/inject-chaos",
-        "duplicate-token"
-      );
-      return;
-    }
-
-    if (section.id === "synchronization-failure") {
-      runSelfHealingTest(
-        section.id,
-        "/self-healing/synchronization-failure",
-        "synchronization-failure"
-      );
-      return;
-    }
-
-    setResults((previous) => ({
-      ...previous,
-      [section.id]: {
-        currentStage: "demo",
-        completed: false,
-        demoOnly: true,
-        events: [
-          {
-            key: "demo",
-            title: "Demo Preview",
-            description:
-              "This scenario's UI is ready, but its backend failure injection and self-healing logic still need to be connected.",
-            time: new Date().toLocaleTimeString(),
-          },
-        ],
-      },
-    }));
+  if (section.id === "duplicate-token") {
+    runSelfHealingTest(
+      section.id,
+      "/self-healing/inject-chaos",
+      "duplicate-token"
+    );
+    return;
   }
 
+  if (section.id === "synchronization-failure") {
+    runSelfHealingTest(
+      section.id,
+      "/self-healing/synchronization-failure",
+      "synchronization-failure"
+    );
+    return;
+  }
+
+  if (section.id === "expired-stock") {
+    runSelfHealingTest(
+      section.id,
+      "/self-healing/expired-stock",
+      "expired-stock"
+    );
+    return;
+  }
+
+  if (section.id === "offline-inventory-recovery") {
+    runSelfHealingTest(
+      section.id,
+      "/self-healing/offline-inventory/recover",
+      "offline-inventory-recovery"
+    );
+  }
+}
   function resetSection(id) {
     if (runningId === id) return;
 
@@ -598,10 +872,6 @@ export default function SelfHealingPage() {
                           <LoaderCircle size={14} className="animate-spin" />
                           In progress
                         </span>
-                      ) : result?.demoOnly ? (
-                        <span className="rounded-full bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-800">
-                          Preview only
-                        </span>
                       ) : result?.currentStage === "recovery_failed" ? (
                         <span className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-800">
                           Failed
@@ -751,13 +1021,7 @@ export default function SelfHealingPage() {
                           </p>
 
                           {relatedEvent?.time && (
-                            <p
-                              className={`mt-3 text-[11px] font-medium ${
-                                failureStageActive
-                                  ? "text-red-600"
-                                  : "text-[#89958c]"
-                              }`}
-                            >
+                            <p className="mt-3 text-[11px] font-medium text-[#89958c]">
                               <Clock size={12} className="mr-1 inline" />
                               {relatedEvent.time}
                             </p>
@@ -797,7 +1061,7 @@ export default function SelfHealingPage() {
                           return (
                             <div
                               key={`${event.key}-${eventIndex}`}
-                              className={`flex gap-3 rounded-xl p-3 transition ${
+                              className={`flex gap-3 rounded-xl p-3 ${
                                 isFailureEvent
                                   ? "border border-red-200 bg-red-50"
                                   : ""
@@ -834,13 +1098,7 @@ export default function SelfHealingPage() {
                                   </p>
 
                                   {event.time && (
-                                    <span
-                                      className={`text-[11px] ${
-                                        isFailureEvent
-                                          ? "text-red-600"
-                                          : "text-[#89958c]"
-                                      }`}
-                                    >
+                                    <span className="text-[11px] text-[#89958c]">
                                       {event.time}
                                     </span>
                                   )}
@@ -858,6 +1116,7 @@ export default function SelfHealingPage() {
                                     "System event recorded."}
                                 </p>
 
+                                <EventDetailsTable event={event} />
                                 <CustomerDetails event={event} />
                               </div>
                             </div>
@@ -900,6 +1159,17 @@ export default function SelfHealingPage() {
                               result.finalResult.description ||
                               "The server returned the final test result."}
                           </p>
+
+                          {section.id === "expired-stock" && (
+                            <RecoverySummaryTable
+                              summary={result.finalResult.summary}
+                            />
+                          )}
+
+                          <VerificationTable
+                            section={section}
+                            verification={result.finalResult.verification}
+                          />
 
                           {result.finalResult.testResults && (
                             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1008,63 +1278,6 @@ export default function SelfHealingPage() {
                               </div>
                             )}
 
-                          {result.finalResult.verification && (
-                            <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                              {section.id === "synchronization-failure" ? (
-                                <>
-                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                    Status mismatch detected:{" "}
-                                    {result.finalResult.verification
-                                      .mismatchDetected
-                                      ? "Verified"
-                                      : "Not verified"}
-                                  </span>
-
-                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                    Status synchronized:{" "}
-                                    {result.finalResult.verification.synchronized
-                                      ? "Verified"
-                                      : "Not verified"}
-                                  </span>
-
-                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                    Test cleanup:{" "}
-                                    {result.finalResult.verification
-                                      .cleanupSucceeded
-                                      ? "Complete"
-                                      : "Not confirmed"}
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                    Duplicate rejected:{" "}
-                                    {result.finalResult.verification
-                                      .duplicateRejected
-                                      ? "Verified"
-                                      : "Not verified"}
-                                  </span>
-
-                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                    Unique tokens:{" "}
-                                    {result.finalResult.verification
-                                      .tokensAreDifferent
-                                      ? "Verified"
-                                      : "Not verified"}
-                                  </span>
-
-                                  <span className="rounded-full bg-white px-3 py-2 text-[#47754e]">
-                                    Test cleanup:{" "}
-                                    {result.finalResult.verification
-                                      .cleanupSucceeded
-                                      ? "Complete"
-                                      : "Not confirmed"}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          )}
-
                           {result.finalResult.durationMs != null && (
                             <p className="mt-3 text-xs text-[#718078]">
                               Recovery duration:{" "}
@@ -1076,17 +1289,6 @@ export default function SelfHealingPage() {
                           )}
                         </div>
                       </div>
-                    </div>
-                  )}
-
-                  {result?.demoOnly && (
-                    <div className="mt-5 flex gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-800">
-                      <AlertTriangle size={19} className="mt-0.5 shrink-0" />
-                      <p>
-                        This is a UI preview only. The backend logic for this
-                        failure is not connected yet. No real stock failure was
-                        injected and no inventory was changed.
-                      </p>
                     </div>
                   )}
                 </div>

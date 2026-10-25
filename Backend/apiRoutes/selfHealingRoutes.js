@@ -1,10 +1,17 @@
-
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 
 const Queue = require("../datamodels/Queue");
 const requireAdmin = require("../middleware/requireAdmin");
 
+const StockBatch = require("../datamodels/StockBatch");
+const StockQuantity = require("../datamodels/StockQuantity");
+const Ingredient = require("../datamodels/Ingredient");
+
+const {
+  reconcileIngredient,
+} = require("../inventoryLogic/stockReconciliationLogic");
 router.use(requireAdmin);
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -785,6 +792,579 @@ router.post("/synchronization-failure", async (req, res) => {
         }
     }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+ // FAILURE 3: EXPIRED STOCK DETECTION & AUTO-RECOVERY
+
+router.post("/expired-stock", async (req, res) => {
+    let testBatchCode = null;
+    let testIngredientId = null;
+    let streamStarted = false;
+
+    const affectedIngredientIds = new Set();
+
+    const timeline = [];
+
+    const progress = (stage, message, details = {}) => {
+        sendProgress(res, timeline, stage, message, details);
+    };
+
+    // IMPORTANT: The frontend expects the result inside payload.result.
+    const finish = (result) => {
+        if (!res.writableEnded) {
+            sendEvent(res, "result", { result });
+            res.end();
+        }
+    };
+
+    try {
+        beginStream(res);
+        streamStarted = true;
+
+        progress(
+            "injecting",
+            "Starting expired-stock failure injection.",
+            { status: "IN_PROGRESS" }
+        );
+
+        // Find an ingredient for the temporary test batch.
+        const ingredient = await Ingredient.findOne().lean();
+
+        if (!ingredient) {
+            throw new Error(
+                "No ingredient exists. Add an ingredient before testing Failure 3."
+            );
+        }
+
+        testIngredientId = ingredient._id;
+        testBatchCode = `SH-EXP-${Date.now()}`;
+
+        // Create a temporary batch with an expiry date in the past.
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        await StockBatch.create({
+            batchCode: testBatchCode,
+            ingredientId: testIngredientId,
+            quantityReceived: 1,
+            quantityRemaining: 1,
+            unitCost: 1,
+            totalCost: 1,
+            receivedDate: yesterday,
+            expiryDate: yesterday,
+            status: "ACTIVE",
+            expiredQuantity: 0
+        });
+
+        affectedIngredientIds.add(String(testIngredientId));
+
+        progress(
+            "injected",
+            "Failure injected: a temporary expired batch was created with ACTIVE status.",
+            {
+                batchCode: testBatchCode,
+                ingredient:
+                    ingredient.name ||
+                    ingredient.ingredientName ||
+                    "Test ingredient",
+                expiryDate: yesterday.toISOString(),
+                actualStatus: "ACTIVE",
+                expectedStatus: "EXPIRED",
+                remainingQuantity: 1
+            }
+        );
+
+        await wait(400);
+
+        // Detect expired batches incorrectly marked ACTIVE.
+        progress(
+            "detecting",
+            "Scanning inventory for expired batches that are still ACTIVE."
+        );
+
+        const expiredBatches = await StockBatch.find({
+            expiryDate: { $ne: null, $lt: new Date() },
+            status: "ACTIVE",
+            quantityRemaining: { $gt: 0 }
+        });
+
+        if (expiredBatches.length === 0) {
+            throw new Error(
+                "The injected expired batch could not be detected."
+            );
+        }
+
+        for (const batch of expiredBatches) {
+            affectedIngredientIds.add(String(batch.ingredientId));
+        }
+
+        progress(
+            "detected",
+            `Failure detected: ${expiredBatches.length} expired batch(es) are incorrectly marked ACTIVE.`,
+            {
+                detectedCount: expiredBatches.length,
+                batches: expiredBatches.map((batch) => ({
+                    batchCode: batch.batchCode,
+                    status: batch.status,
+                    expiryDate: batch.expiryDate,
+                    remainingQuantity: batch.quantityRemaining
+                }))
+            }
+        );
+
+        await wait(400);
+
+        // Recover by updating expired batch statuses and quantities.
+        progress(
+            "recovery_started",
+            "Automatic recovery started: updating expired batch statuses."
+        );
+
+        for (const batch of expiredBatches) {
+            const expiredAmount = Number(batch.quantityRemaining || 0);
+
+            batch.expiredQuantity =
+                Number(batch.expiredQuantity || 0) + expiredAmount;
+
+            batch.quantityRemaining = 0;
+            batch.status = "EXPIRED";
+
+            await batch.save();
+        }
+
+        progress(
+            "recovered",
+            "Expired batches were marked EXPIRED and their quantities were recorded.",
+            {
+                recoveredCount: expiredBatches.length,
+                batches: expiredBatches.map((batch) => ({
+                    batchCode: batch.batchCode,
+                    status: "EXPIRED",
+                    expiredQuantity: batch.expiredQuantity
+                }))
+            }
+        );
+
+        // Recalculate usable inventory for all affected ingredients.
+        progress(
+            "inventory_recalculation",
+            "Recalculating usable stock quantities for affected ingredients."
+        );
+
+        for (const ingredientId of affectedIngredientIds) {
+            const usableBatches = await StockBatch.find({
+                ingredientId: new mongoose.Types.ObjectId(ingredientId),
+                status: "ACTIVE",
+                quantityRemaining: { $gt: 0 },
+                $or: [
+                    { expiryDate: null },
+                    { expiryDate: { $exists: false } },
+                    { expiryDate: { $gt: new Date() } }
+                ]
+            }).lean();
+
+            const totalUsableQuantity = usableBatches.reduce(
+                (total, batch) =>
+                    total + Number(batch.quantityRemaining || 0),
+                0
+            );
+
+            await StockQuantity.findOneAndUpdate(
+                { ingredientId: new mongoose.Types.ObjectId(ingredientId) },
+                {
+                    $set: {
+                        totalQuantity: totalUsableQuantity,
+                        lastUpdatedAt: new Date()
+                    }
+                },
+                {
+                    upsert: true,
+                    returnDocument: "after",
+                    runValidators: true,
+                    setDefaultsOnInsert: true
+                }
+            );
+        }
+
+        progress(
+            "inventory_updated",
+            "Usable inventory quantities have been recalculated.",
+            { affectedIngredients: affectedIngredientIds.size }
+        );
+
+        // Verify no expired batch still has usable stock marked ACTIVE.
+        progress(
+            "verification_started",
+            "Verifying that no expired batch with remaining stock remains ACTIVE."
+        );
+
+        const remainingInvalidBatches = await StockBatch.countDocuments({
+            expiryDate: { $ne: null, $lt: new Date() },
+            status: "ACTIVE",
+            quantityRemaining: { $gt: 0 }
+        });
+
+        if (remainingInvalidBatches > 0) {
+            throw new Error(
+                `Verification failed: ${remainingInvalidBatches} expired active batch(es) remain.`
+            );
+        }
+
+        progress(
+            "verification_passed",
+            "Verification passed: no expired batch with remaining stock is still marked ACTIVE.",
+            { remainingInvalidBatches: 0 }
+        );
+
+        // Remove only the temporary batch created for this test.
+        progress(
+            "cleanup_started",
+            "Removing the temporary test batch created for failure injection."
+        );
+
+        await StockBatch.deleteOne({ batchCode: testBatchCode });
+
+        // Recalculate the test ingredient after temporary batch removal.
+        const remainingUsableBatches = await StockBatch.find({
+            ingredientId: testIngredientId,
+            status: "ACTIVE",
+            quantityRemaining: { $gt: 0 },
+            $or: [
+                { expiryDate: null },
+                { expiryDate: { $exists: false } },
+                { expiryDate: { $gt: new Date() } }
+            ]
+        }).lean();
+
+        const finalQuantity = remainingUsableBatches.reduce(
+            (total, batch) =>
+                total + Number(batch.quantityRemaining || 0),
+            0
+        );
+
+        await StockQuantity.findOneAndUpdate(
+            { ingredientId: testIngredientId },
+            {
+                $set: {
+                    totalQuantity: finalQuantity,
+                    lastUpdatedAt: new Date()
+                }
+            },
+            {
+                upsert: true,
+                returnDocument: "after",
+                runValidators: true,
+                setDefaultsOnInsert: true
+            }
+        );
+
+        progress(
+            "cleanup",
+            "Cleanup completed: temporary test batch removed and inventory recalculated.",
+            { testBatchCode }
+        );
+
+        // Send the final result in the format expected by React.
+        finish({
+            success: true,
+            recovered: true,
+            completed: true,
+            failureType: "expired-stock",
+            message:
+                "Expired stock failure detected, recovered, verified, and cleaned up successfully.",
+            durationMs: Date.now() - new Date(timeline[0].timestamp).getTime(),
+            timeline,
+            summary: {
+                failureInjected: true,
+                failureDetected: true,
+                recovered: true,
+                verificationPassed: true,
+                cleanupCompleted: true,
+                batchesRecovered: expiredBatches.length,
+                temporaryBatchRemoved: true
+            }
+        });
+    } catch (error) {
+        console.error("Expired stock self-healing error:", error);
+
+        // Best-effort cleanup of the temporary batch.
+        if (testBatchCode) {
+            try {
+                await StockBatch.deleteOne({ batchCode: testBatchCode });
+
+                if (testIngredientId) {
+                    const usableBatches = await StockBatch.find({
+                        ingredientId: testIngredientId,
+                        status: "ACTIVE",
+                        quantityRemaining: { $gt: 0 },
+                        $or: [
+                            { expiryDate: null },
+                            { expiryDate: { $exists: false } },
+                            { expiryDate: { $gt: new Date() } }
+                        ]
+                    }).lean();
+
+                    const totalQuantity = usableBatches.reduce(
+                        (total, batch) =>
+                            total + Number(batch.quantityRemaining || 0),
+                        0
+                    );
+
+                    await StockQuantity.findOneAndUpdate(
+                        { ingredientId: testIngredientId },
+                        {
+                            $set: {
+                                totalQuantity,
+                                lastUpdatedAt: new Date()
+                            }
+                        },
+                        {
+                            upsert: true,
+                            returnDocument: "after",
+                            runValidators: true,
+                            setDefaultsOnInsert: true
+                        }
+                    );
+                }
+            } catch (cleanupError) {
+                console.error(
+                    "Temporary batch cleanup failed:",
+                    cleanupError
+                );
+            }
+        }
+
+        const result = {
+            success: false,
+            recovered: false,
+            completed: false,
+            failureType: "expired-stock",
+            message: error.message || "Expired stock recovery failed.",
+            timeline
+        };
+
+        if (streamStarted && !res.writableEnded) {
+            sendEvent(res, "result", { result });
+            res.end();
+        } else if (!res.headersSent) {
+            res.status(500).json(result);
+        }
+    }
+});
+
+
+
+/* FAILURE 4: OFFLINE INVENTORY RECOVERY */
+
+// Reconcile inventory after the database connection is available again.
+router.post("/offline-inventory/recover", async (req, res) => {
+    const timeline = [];
+    let streamStarted = false;
+
+    const startedAt = Date.now();
+
+    const progress = (stage, message, details = {}) => {
+        sendProgress(res, timeline, stage, message, details);
+    };
+
+    const finish = (result) => {
+        if (!res.writableEnded) {
+            sendEvent(res, "result", { result });
+            res.end();
+        }
+    };
+
+    try {
+        // Start the progress stream.
+        beginStream(res);
+        streamStarted = true;
+
+        progress(
+            "started",
+            "Starting offline inventory recovery."
+        );
+
+        await wait(400);
+
+        // Step 1: Check database connectivity.
+        progress(
+            "checking_connection",
+            "Checking whether the database connection is available."
+        );
+
+        if (mongoose.connection.readyState !== 1) {
+            throw new Error(
+                "Database is disconnected. Reconnect MongoDB before running recovery."
+            );
+        }
+
+        progress(
+            "connection_restored",
+            "Database connection is available. Checking inventory records."
+        );
+
+        await wait(400);
+
+        // Step 2: Find ingredients.
+        const ingredients = await Ingredient.find().lean();
+
+        if (ingredients.length === 0) {
+            throw new Error(
+                "No ingredients found. Add ingredients before testing inventory recovery."
+            );
+        }
+
+        progress(
+            "inventory_found",
+            `Found ${ingredients.length} ingredient(s). Starting inventory reconciliation.`,
+            {
+                totalIngredients: ingredients.length
+            }
+        );
+
+        await wait(400);
+
+        // Step 3: Reconcile inventory for each ingredient.
+        const results = [];
+
+        for (let index = 0; index < ingredients.length; index++) {
+            const ingredient = ingredients[index];
+
+            progress(
+                "recovery_in_progress",
+                `Reconciling inventory for ${ingredient.name || ingredient.ingredientName || "ingredient"}.`,
+                {
+                    ingredientId: String(ingredient._id),
+                    ingredientName:
+                        ingredient.name ||
+                        ingredient.ingredientName ||
+                        "Unknown ingredient",
+                    currentIngredient: index + 1,
+                    totalIngredients: ingredients.length
+                }
+            );
+
+            try {
+                const recoveryResult = await reconcileIngredient(
+                    String(ingredient._id)
+                );
+
+                results.push({
+                    ingredientId: String(ingredient._id),
+                    ingredientName:
+                        ingredient.name ||
+                        ingredient.ingredientName ||
+                        "Unknown ingredient",
+                    success: true,
+                    result: recoveryResult
+                });
+            } catch (error) {
+                results.push({
+                    ingredientId: String(ingredient._id),
+                    ingredientName:
+                        ingredient.name ||
+                        ingredient.ingredientName ||
+                        "Unknown ingredient",
+                    success: false,
+                    message: error.message
+                });
+            }
+
+            await wait(200);
+        }
+
+        // Step 4: Check recovery results.
+        const failedResults = results.filter(
+            (item) => !item.success
+        );
+
+        const recoveredCount = results.length - failedResults.length;
+        const recoveryVerified = failedResults.length === 0;
+
+        progress(
+            "verification_started",
+            "Verifying the inventory reconciliation results."
+        );
+
+        await wait(400);
+
+        progress(
+            recoveryVerified ? "verification_passed" : "verification_failed",
+            recoveryVerified
+                ? "Inventory reconciliation completed successfully for every ingredient."
+                : "Recovery finished, but some ingredients could not be reconciled.",
+            {
+                totalIngredients: results.length,
+                recoveredIngredients: recoveredCount,
+                failedIngredients: failedResults.length,
+                recoveryVerified
+            }
+        );
+
+        // Step 5: Return the final result.
+        const result = {
+            success: recoveryVerified,
+            recovered: recoveredCount > 0,
+            completed: true,
+            failureType: "offline-inventory-recovery",
+            message: recoveryVerified
+                ? "Offline inventory recovery and verification completed successfully."
+                : "Inventory recovery completed with some failures.",
+            durationMs: Date.now() - startedAt,
+            timeline,
+            summary: {
+                failureDetected: true,
+                databaseConnected: true,
+                totalIngredients: results.length,
+                recoveredIngredients: recoveredCount,
+                failedIngredients: failedResults.length,
+                verificationPassed: recoveryVerified
+            },
+            results
+        };
+
+        finish(result);
+    } catch (error) {
+        console.error("Offline inventory recovery failed:", error);
+
+        const result = {
+            success: false,
+            recovered: false,
+            completed: false,
+            failureType: "offline-inventory-recovery",
+            message: error.message || "Offline inventory recovery failed.",
+            durationMs: Date.now() - startedAt,
+            timeline,
+            summary: {
+                failureDetected: true,
+                verificationPassed: false
+            }
+        };
+
+        if (streamStarted && !res.writableEnded) {
+            progress(
+                "recovery_failed",
+                result.message
+            );
+
+            result.timeline = timeline;
+            finish(result);
+        } else if (!res.headersSent) {
+            res.status(500).json(result);
+        }
+    }
+}); 
 
 
 module.exports = router;

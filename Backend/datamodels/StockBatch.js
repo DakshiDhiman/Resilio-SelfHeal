@@ -53,6 +53,7 @@ const stockBatchSchema = new mongoose.Schema(
             default: Date.now
         },
 
+        // Expiry date belongs to each individual batch.
         expiryDate: {
             type: Date,
             default: null
@@ -60,8 +61,15 @@ const stockBatchSchema = new mongoose.Schema(
 
         status: {
             type: String,
-            enum: ['Available', 'Depleted', 'Expired', 'Quarantined'],
-            default: 'Available'
+            enum: ['ACTIVE', 'EXPIRED', 'DEPLETED'],
+            default: 'ACTIVE'
+        },
+
+        // Records the quantity identified as expired.
+        expiredQuantity: {
+            type: Number,
+            default: 0,
+            min: 0
         }
     },
     {
