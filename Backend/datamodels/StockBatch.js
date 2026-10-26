@@ -7,69 +7,50 @@ const stockBatchSchema = new mongoose.Schema(
             type: String,
             required: true,
             unique: true,
-            trim: true,
-            uppercase: true
+            trim: true
         },
-
         ingredientId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Ingredient',
             required: true
         },
-
-        quantityReceived: {
+        quantity: {
             type: Number,
             required: true,
             min: 0
         },
-
         quantityRemaining: {
             type: Number,
             required: true,
             min: 0
         },
-
         unitCost: {
             type: Number,
             required: true,
             min: 0
         },
-
-        totalCost: {
-            type: Number,
-            required: true,
-            min: 0
-        },
-
         supplierId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Supplier',
             default: null
         },
-
         receivedDate: {
             type: Date,
-            required: true,
-            default: Date.now
+            required: true
         },
-
-        // Expiry date belongs to each individual batch.
         expiryDate: {
             type: Date,
             default: null
         },
-
+        referenceCode: {
+            type: String,
+            trim: true,
+            default: ''
+        },
         status: {
             type: String,
-            enum: ['ACTIVE', 'EXPIRED', 'DEPLETED'],
+            enum: ['ACTIVE', 'Available', 'Depleted', 'Expired', 'Quarantined'],
             default: 'ACTIVE'
-        },
-
-        // Records the quantity identified as expired.
-        expiredQuantity: {
-            type: Number,
-            default: 0,
-            min: 0
         }
     },
     {

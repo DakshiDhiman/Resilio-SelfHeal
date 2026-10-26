@@ -1,4 +1,4 @@
-
+``
 import { useCallback, useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -10,14 +10,12 @@ import {
   ChartNoAxesCombined,
   Bell,
   ShieldCheck,
-  Settings,
   LogOut,
-  Search,
   Menu,
   X,
   ChevronDown,
-  Leaf,
   Users,
+  UtensilsCrossed,
 } from "lucide-react";
 
 import "./App.css";
@@ -60,13 +58,12 @@ const navigationGroups = [
       { name: "Reports", icon: ChartNoAxesCombined },
       { name: "Alerts", icon: Bell },
       { name: "Self-Healing Monitor", icon: ShieldCheck },
-      { name: "Settings", icon: Settings },
     ],
   },
 ];
 
 const descriptions = {
-  Dashboard: "Overview of your restaurant inventory.",
+  Dashboard: "Overview of your restaurant inventory and queue.",
   Ingredients: "Manage your restaurant ingredients.",
   "Stock Batches": "Track stock batches, costs and expiry dates.",
   Suppliers: "Manage your ingredient suppliers.",
@@ -78,7 +75,6 @@ const descriptions = {
   Alerts: "Monitor low-stock and expiry alerts.",
   "Self-Healing Monitor":
     "Monitor detected failures and recovery activity.",
-  Settings: "Manage your Resilio application settings.",
 };
 
 function ComingSoon({ title }) {
@@ -88,12 +84,10 @@ function ComingSoon({ title }) {
         <Layers3 size={23} />
       </div>
 
-      <h2 className="text-xl font-semibold text-[#173D35]">
-        {title}
-      </h2>
+      <h2 className="text-xl font-semibold text-[#173D35]">{title}</h2>
 
       <p className="mt-2 max-w-lg text-sm leading-6 text-[#78877C]">
-        {descriptions[title]}
+        {descriptions[title] || "Manage your Resilio system."}
       </p>
 
       <p className="mt-5 text-xs text-[#78877C]">
@@ -114,7 +108,6 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [searchText, setSearchText] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -284,11 +277,8 @@ export default function App() {
       setError("");
       setSidebarOpen(false);
       setProfileOpen(false);
-      setSearchText("");
     } catch (err) {
-      setAuthError(
-        err.message || "Unable to log out. Please try again."
-      );
+      setAuthError(err.message || "Unable to log out. Please try again.");
     } finally {
       setLoggingOut(false);
     }
@@ -333,7 +323,7 @@ export default function App() {
         return <StockQuantityPage />;
 
       case "Queue Management":
-      return <QueueManagementPage />;
+        return <QueueManagementPage />;
 
       case "Reports":
         return <InventoryReportsPage />;
@@ -341,8 +331,8 @@ export default function App() {
       case "Alerts":
         return <AlertsPage />;
 
-        case "Self-Healing Monitor":
-         return <SelfHealingPage />;
+      case "Self-Healing Monitor":
+        return <SelfHealingPage />;
 
       default:
         return <ComingSoon title={activePage} />;
@@ -354,7 +344,7 @@ export default function App() {
       <div className="flex min-h-screen items-center justify-center bg-[#F7F4EC] px-5">
         <div className="text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#173D35] text-white">
-            <Leaf size={27} />
+            <UtensilsCrossed size={27} />
           </div>
 
           <h1 className="mt-4 font-serif text-3xl font-semibold text-[#173D35]">
@@ -403,17 +393,19 @@ export default function App() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
+        {/* Updated logo and subtitle */}
         <div className="flex items-center gap-3 border-b border-[#E6E3DA] px-5 py-6">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#173D35] text-white">
-            <Leaf size={23} />
+            <UtensilsCrossed size={23} />
           </div>
 
           <div className="flex-1">
             <h1 className="font-serif text-[27px] font-semibold leading-7 tracking-tight">
               resilio
             </h1>
+
             <p className="mt-1 text-[9px] font-bold tracking-[1.5px] text-[#78877C]">
-              SMART INVENTORY
+              RESTAURANT MANAGEMENT
             </p>
           </div>
 
@@ -427,6 +419,7 @@ export default function App() {
           </button>
         </div>
 
+        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-5">
           {navigationGroups.map((group) => (
             <div key={group.title} className="mb-6">
@@ -460,16 +453,15 @@ export default function App() {
           ))}
         </nav>
 
+        {/* Sidebar footer */}
         <div className="border-t border-[#E6E3DA] p-3">
           <div className="mb-3 flex items-center gap-3 rounded-xl bg-[#DCE5D8] p-3">
             <ShieldCheck size={20} className="shrink-0" />
 
             <div>
-              <p className="text-[11px] font-semibold">
-                Resilio Protection
-              </p>
+              <p className="text-[11px] font-semibold">Resilio Protection</p>
               <p className="mt-1 text-[10px] text-[#69796C]">
-                Inventory monitoring
+                Inventory & queue monitoring
               </p>
             </div>
           </div>
@@ -503,25 +495,15 @@ export default function App() {
               <h2 className="truncate text-xl font-semibold">
                 {activePage}
               </h2>
+
               <p className="mt-1 hidden text-xs text-[#78877C] sm:block">
                 {descriptions[activePage]}
               </p>
             </div>
           </div>
 
+          {/* Search removed; notification and admin profile retained */}
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-            <label className="hidden h-10 w-48 items-center gap-2 rounded-lg border border-[#E6E3DA] bg-white px-3 text-[#78877C] md:flex">
-              <Search size={17} />
-              <input
-                type="search"
-                aria-label="Search"
-                placeholder="Search..."
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                className="w-full min-w-0 bg-transparent text-xs text-[#173D35] outline-none placeholder:text-[#9AA39A]"
-              />
-            </label>
-
             <button
               type="button"
               aria-label="Open alerts"
@@ -557,15 +539,6 @@ export default function App() {
                 <div className="absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-xl border border-[#E6E3DA] bg-white py-1 shadow-lg">
                   <button
                     type="button"
-                    onClick={() => navigateTo("Settings")}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm hover:bg-[#F0F3ED]"
-                  >
-                    <Settings size={17} />
-                    Settings
-                  </button>
-
-                  <button
-                    type="button"
                     disabled={loggingOut}
                     onClick={handleLogout}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-[#A34D3E] hover:bg-[#F8EEEB] disabled:opacity-60"
@@ -586,6 +559,7 @@ export default function App() {
               className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-[#E8C9C2] bg-[#FBEEEA] px-4 py-3 text-sm text-[#9D4538]"
             >
               <span>{authError}</span>
+
               <button
                 type="button"
                 onClick={() => setAuthError("")}

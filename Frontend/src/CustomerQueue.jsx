@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Users, Utensils } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Users,
+  Utensils,
+  MapPin,
+  Smartphone,
+  ShieldCheck,
+  Check,
+  UtensilsCrossed,
+} from "lucide-react";
 
 function CustomerQueue() {
   const navigate = useNavigate();
@@ -86,12 +96,12 @@ function CustomerQueue() {
       }
 
       navigate("/queue/status", {
-  state: {
-    queueEntry: entry,
-    notification: result.notification,
-  },
-  replace: true,
-});
+        state: {
+          queueEntry: entry,
+          notification: result.notification,
+        },
+        replace: true,
+      });
     } catch (err) {
       setError(
         err.message ||
@@ -103,197 +113,332 @@ function CustomerQueue() {
   }
 
   const inputClass =
-    "w-full rounded-xl border border-[#D8DED5] bg-[#FDFCF8] px-4 py-3 text-[#173D35] outline-none transition focus:border-[#173D35] focus:ring-2 focus:ring-[#173D35]/10";
+    "w-full rounded-lg border border-[#D9DED5] bg-white px-4 py-3 text-sm text-[#173D35] outline-none transition placeholder:text-[#8A958A] focus:border-[#173D35] focus:ring-2 focus:ring-[#DCE5D8]";
 
   return (
-    <div className="min-h-screen bg-[#F7F4EC] px-4 py-8 text-[#173D35] md:px-10">
-      <div className="mx-auto max-w-2xl">
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-[#65766B] hover:text-[#173D35]"
-        >
-          <ArrowLeft size={18} />
-          Back to home
-        </button>
+    <div
+      className="min-h-screen bg-[#F7F4EC] text-[#173D35]"
+      style={{ fontFamily: "'DM Sans', sans-serif" }}
+    >
+      <header className="border-b border-[#173D35]/10">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="flex items-center gap-3"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#173D35] text-white">
+              <UtensilsCrossed size={23}  />
+            </span>
 
-        <div className="rounded-3xl border border-[#E5E2D9] bg-white p-6 shadow-sm md:p-10">
-          <div className="mb-7 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#DCE5D8]">
-            <Utensils size={27} />
-          </div>
+            <span className="text-left">
+              <h1
+                className="text-2xl font-bold tracking-tight"
+                style={{ fontFamily: "'DM Serif Display', serif" }}
+              >
+                resilio<span className="text-[#78877C]">.</span>
+              </h1>
+                           <p className="text-[10px] font-semibold uppercase tracking-[2px] text-[#78877C]">
+                Dine without the wait
+              </p>
+            </span>
+          </button>
 
-          <p className="text-xs font-bold tracking-[0.2em] text-[#78877C]">
-            RESILIO QUEUE
-          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="inline-flex items-center gap-2 rounded-full border border-[#173D35]/20 px-4 py-2.5 text-sm font-medium transition hover:bg-white"
+          >
+            <ArrowLeft size={16} />
+            Back to home
+          </button>
+        </div>
+      </header>
 
-          <h1 className="mt-2 text-3xl font-bold md:text-4xl">
-            Join the queue
-          </h1>
+      <main className="mx-auto max-w-6xl px-5 py-9 sm:px-8 sm:py-12">
+        <div className="grid items-start gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
+          <section className="lg:sticky lg:top-10">
+            <p className="text-xs font-bold uppercase tracking-[2.3px] text-[#78877C]">
+              Your table starts here
+            </p>
 
-          <p className="mt-3 leading-7 text-[#65766B]">
-            Enter your details to join the restaurant queue and receive your
-            token number.
-          </p>
-
-          {error && (
-            <div
-              role="alert"
-              className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            <h1
+              className="mt-4 max-w-md text-3xl leading-tight sm:text-4xl"
+              style={{ fontFamily: "'DM Serif Display', serif" }}
             >
-              {error}
-            </div>
-          )}
+              Join the queue.
+              <br />
+              <span className="text-[#78877C]">
+                We'll take it from here.
+              </span>
+            </h1>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-            <div>
-              <label
-                htmlFor="customerName"
-                className="mb-2 block text-sm font-semibold"
-              >
-                Your name
-              </label>
+            <p className="mt-4 max-w-md text-sm leading-7 text-[#173D35]/70">
+              Tell us a little about your visit. Once you join, you'll receive
+              a token you can use to check your place in the queue.
+            </p>
 
-              <input
-                id="customerName"
-                name="customerName"
-                type="text"
-                value={form.customerName}
-                onChange={handleChange}
-                required
-                minLength={2}
-                maxLength={80}
-                autoComplete="name"
-                placeholder="Enter your full name"
-                className={inputClass}
+            <div className="mt-8 overflow-hidden rounded-xl">
+              <img
+                src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1100&q=85"
+                alt="A welcoming restaurant dining table"
+                className="h-48 w-full object-cover sm:h-60 lg:h-64"
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="mobileNumber"
-                className="mb-2 block text-sm font-semibold"
-              >
-                Mobile number
-              </label>
-
-              <input
-                id="mobileNumber"
-                name="mobileNumber"
-                type="tel"
-                inputMode="numeric"
-                value={form.mobileNumber}
-                onChange={handleChange}
-                required
-                maxLength={10}
-                pattern="[0-9]{10}"
-                autoComplete="tel"
-                placeholder="Enter your 10-digit mobile number"
-                className={inputClass}
-              />
+            <div className="mt-5 flex items-start gap-3 border-b border-[#173D35]/10 pb-5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#DCE5D8]">
+                <Smartphone size={17} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Keep your token handy</p>
+                <p className="mt-1 text-xs leading-5 text-[#78877C]">
+                  Use it later to check your queue status from your phone.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label
-                htmlFor="partySize"
-                className="mb-2 block text-sm font-semibold"
+            <div className="mt-4 flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#DCE5D8]">
+                <ShieldCheck size={17} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">
+                  Your details stay private
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[#78877C]">
+                  Your contact information is used to manage your queue entry,
+                  not displayed to other customers.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[#173D35]/10 bg-white p-5 sm:p-8">
+            <div className="mb-7 border-b border-[#173D35]/10 pb-5">
+              <p className="text-[11px] font-bold uppercase tracking-[2px] text-[#78877C]">
+                Reservation queue
+              </p>
+              <h2
+                className="mt-2 text-2xl"
+                style={{ fontFamily: "'DM Serif Display', serif" }}
               >
-                Number of people
-              </label>
+                Your details
+              </h2>
+              <p className="mt-2 text-sm text-[#78877C]">
+                All fields are required to join the queue.
+              </p>
+            </div>
 
-              <div className="relative">
-                <Users
-                  size={18}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-[#78877C]"
-                />
+            {error && (
+              <div
+                role="alert"
+                className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
 
-                <select
-                  id="partySize"
-                  name="partySize"
-                  value={form.partySize}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label
+                  htmlFor="customerName"
+                  className="mb-2 block text-sm font-semibold"
+                >
+                  Your name
+                </label>
+
+                <input
+                  id="customerName"
+                  name="customerName"
+                  type="text"
+                  value={form.customerName}
                   onChange={handleChange}
                   required
-                  className={`${inputClass} pl-11`}
-                >
-                  {Array.from({ length: 10 }, (_, index) => index + 1).map(
-                    (size) => (
-                      <option key={size} value={size}>
-                        {size} {size === 1 ? "person" : "people"}
-                      </option>
-                    )
-                  )}
-                  <option value="11">11 people</option>
-                  <option value="12">12 people</option>
-                  <option value="13">13 people</option>
-                  <option value="14">14 people</option>
-                  <option value="15">15 people</option>
-                  <option value="16">16 people</option>
-                  <option value="17">17 people</option>
-                  <option value="18">18 people</option>
-                  <option value="19">19 people</option>
-                  <option value="20">20 people</option>
-                </select>
+                  minLength={2}
+                  maxLength={80}
+                  autoComplete="name"
+                  placeholder="Enter your full name"
+                  className={inputClass}
+                />
               </div>
-            </div>
 
-            <fieldset>
-              <legend className="mb-3 text-sm font-semibold">
-                How will you join?
-              </legend>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
                 <label
-                  className={`cursor-pointer rounded-xl border p-4 transition ${
-                    form.arrivalType === "onsite"
-                      ? "border-[#173D35] bg-[#DCE5D8]"
-                      : "border-[#D8DED5] hover:bg-[#F7F4EC]"
-                  }`}
+                  htmlFor="mobileNumber"
+                  className="mb-2 block text-sm font-semibold"
                 >
-                  <input
-                    type="radio"
-                    name="arrivalType"
-                    value="onsite"
-                    checked={form.arrivalType === "onsite"}
-                    onChange={handleChange}
-                    className="mr-2 accent-[#173D35]"
-                  />
-                  <span className="font-medium">At restaurant</span>
+                  Mobile number
                 </label>
 
-                <label
-                  className={`cursor-pointer rounded-xl border p-4 transition ${
-                    form.arrivalType === "remote"
-                      ? "border-[#173D35] bg-[#DCE5D8]"
-                      : "border-[#D8DED5] hover:bg-[#F7F4EC]"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="arrivalType"
-                    value="remote"
-                    checked={form.arrivalType === "remote"}
-                    onChange={handleChange}
-                    className="mr-2 accent-[#173D35]"
-                  />
-                  <span className="font-medium">Joining remotely</span>
-                </label>
+                <input
+                  id="mobileNumber"
+                  name="mobileNumber"
+                  type="tel"
+                  inputMode="numeric"
+                  value={form.mobileNumber}
+                  onChange={(event) =>
+                    setForm((previousForm) => ({
+                      ...previousForm,
+                      mobileNumber: event.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10),
+                    }))
+                  }
+                  required
+                  maxLength={10}
+                  pattern="[0-9]{10}"
+                  autoComplete="tel"
+                  placeholder="10-digit mobile number"
+                  className={inputClass}
+                />
+
+                <p className="mt-1.5 text-xs text-[#78877C]">
+                  Enter your 10-digit mobile number.
+                </p>
               </div>
-            </fieldset>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#173D35] px-5 py-4 font-semibold text-white transition hover:bg-[#28594C] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Joining queue..." : "Confirm & Join Queue"}
-            </button>
-          </form>
+              <div>
+                <label
+                  htmlFor="partySize"
+                  className="mb-2 block text-sm font-semibold"
+                >
+                  Number of people
+                </label>
 
-          <p className="mt-5 text-center text-xs leading-5 text-[#78877C]">
-            Your contact details are used to manage your queue entry and should
-            not be displayed to other customers.
-          </p>
+                <div className="relative">
+                  <Users
+                    size={17}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#78877C]"
+                  />
+
+                  <select
+                    id="partySize"
+                    name="partySize"
+                    value={form.partySize}
+                    onChange={handleChange}
+                    required
+                    className={`${inputClass} appearance-none pl-10`}
+                  >
+                    {Array.from({ length: 20 }, (_, index) => index + 1).map(
+                      (size) => (
+                        <option key={size} value={size}>
+                          {size} {size === 1 ? "person" : "people"}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              <fieldset>
+                <legend className="mb-3 text-sm font-semibold">
+                  How will you join?
+                </legend>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                      form.arrivalType === "onsite"
+                        ? "border-[#173D35] bg-[#F2F6EF]"
+                        : "border-[#D9DED5] hover:bg-[#F7F4EC]"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="arrivalType"
+                      value="onsite"
+                      checked={form.arrivalType === "onsite"}
+                      onChange={handleChange}
+                      className="mt-1 accent-[#173D35]"
+                    />
+
+                    <span className="flex-1">
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        <MapPin size={16} />
+                        At restaurant
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-[#78877C]">
+                        I'm already at the restaurant.
+                      </span>
+                    </span>
+
+                    {form.arrivalType === "onsite" && (
+                      <Check size={16} className="shrink-0" />
+                    )}
+                  </label>
+
+                  <label
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                      form.arrivalType === "remote"
+                        ? "border-[#173D35] bg-[#F2F6EF]"
+                        : "border-[#D9DED5] hover:bg-[#F7F4EC]"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="arrivalType"
+                      value="remote"
+                      checked={form.arrivalType === "remote"}
+                      onChange={handleChange}
+                      className="mt-1 accent-[#173D35]"
+                    />
+
+                    <span className="flex-1">
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        <Smartphone size={16} />
+                        Joining remotely
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-[#78877C]">
+                        I'm joining before I arrive.
+                      </span>
+                    </span>
+
+                    {form.arrivalType === "remote" && (
+                      <Check size={16} className="shrink-0" />
+                    )}
+                  </label>
+                </div>
+              </fieldset>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#173D35] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#28594C] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Joining queue..." : "Confirm & join queue"}
+                {!loading && <ArrowRight size={17} />}
+              </button>
+            </form>
+
+            <p className="mt-4 text-center text-xs leading-5 text-[#78877C]">
+              Your details will be used to manage your queue entry.
+            </p>
+          </section>
         </div>
-      </div>
+      </main>
+
+      <footer className="mt-5 border-t border-[#173D35]/10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-5 text-xs text-[#78877C] sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="self-start font-semibold text-[#173D35] hover:text-[#78877C]"
+          >
+            resilio.
+          </button>
+
+          <p>Your next good meal starts here.</p>
+
+          <button
+            type="button"
+            onClick={() => navigate("/queue/check")}
+            className="self-start font-medium text-[#173D35] hover:underline sm:self-auto"
+          >
+            Already have a token? Check status
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }

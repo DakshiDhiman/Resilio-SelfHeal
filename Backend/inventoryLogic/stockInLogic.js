@@ -5,10 +5,11 @@ const Ingredient = require('../datamodels/Ingredient');
 const StockBatch = require('../datamodels/StockBatch');
 const StockMovement = require('../datamodels/StockMovement');
 const StockQuantity = require('../datamodels/StockQuantity');
-const { syncStockQuantity } = require('./stockQuantityLogic');
+const ProcessedInventoryOperation = require('../datamodels/ProcessedInventoryOperation');
 
 const stockIn = async (data) => {
     const {
+        operationId,
         movementCode,
         batchCode,
         ingredientId,
@@ -25,6 +26,10 @@ const stockIn = async (data) => {
         throw new Error(
             'Movement code, batch code, and ingredient are required.'
         );
+    }
+
+    if (operationId && typeof operationId !== 'string') {
+        throw new Error('Operation ID must be a string.');
     }
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -49,6 +54,41 @@ const stockIn = async (data) => {
         let result;
 
         await session.withTransaction(async () => {
+            // If this operation was already completed, return its saved result.
+            if (operationId) {
+                const previousOperation =
+                    await ProcessedInventoryOperation.findOne({
+                        operationId
+                    }).session(session);
+
+                if (previousOperation) {
+                    if (previousOperation.operationType !== 'STOCK_IN') {
+                        throw new Error(
+                            'This operation ID was already used for another operation type.'
+                        );
+                    }
+
+                    const previousBatch = await StockBatch.findById(
+                        previousOperation.result.batchId
+                    ).session(session);
+
+                    if (!previousBatch) {
+                        throw new Error(
+                            'Previously processed stock batch could not be found.'
+                        );
+                    }
+
+                    result = {
+                        batch: previousBatch,
+                        totalQuantity:
+                            previousOperation.result.totalQuantity,
+                        alreadyProcessed: true
+                    };
+
+                    return;
+                }
+            }
+
             const ingredient = await Ingredient.findOne({
                 _id: ingredientId,
                 isActive: true
@@ -58,37 +98,40 @@ const stockIn = async (data) => {
                 throw new Error('Active ingredient not found.');
             }
 
-            const batch = await StockBatch.create(
-                [{
-                    batchCode,
-                    ingredientId,
-                    quantityReceived: quantity,
-                    quantityRemaining: quantity,
-                    unitCost,
-                    totalCost: quantity * unitCost,
-                    supplierId: supplierId || null,
-                    receivedDate: receivedDate || new Date(),
-                    expiryDate: expiryDate || null,
-                    status: 'Available'
-                }],
-                { session }
-            );
+            
+const batch = await StockBatch.create(
+    [{
+        batchCode,
+        ingredientId,
+        quantity: quantity,
+        quantityReceived: quantity,
+        quantityRemaining: quantity,
+        unitCost,
+        totalCost: quantity * unitCost,
+        supplierId: supplierId || null,
+        receivedDate: receivedDate || new Date(),
+        expiryDate: expiryDate || null,
+        status: 'Available'
+    }],
+    { session }
+);
 
-            await StockMovement.create(
-                [{
-                    movementCode,
-                    ingredientId,
-                    batchId: batch[0]._id,
-                    movementType: 'Stock In',
-                    quantity,
-                    unit: ingredient.unit,
-                    reason: 'New stock received',
-                    referenceCode: referenceCode || null,
-                    performedBy: performedBy || null,
-                    movementDate: receivedDate || new Date()
-                }],
-                { session }
-            );
+await StockMovement.create(
+    [{
+        movementCode,
+        ingredientId,
+        batchId: batch[0]._id,
+        movementType: 'Stock In',
+        quantity,
+        unit: ingredient.unit,
+        reason: 'New stock received',
+        referenceCode: referenceCode || null,
+        performedBy: performedBy || null,
+        movementDate: receivedDate || new Date()
+    }],
+    { session }
+);
+
 
             const totals = await StockBatch.aggregate([
                 {
@@ -128,8 +171,25 @@ const stockIn = async (data) => {
 
             result = {
                 batch: batch[0],
-                totalQuantity: stockQuantity.totalQuantity
+                totalQuantity,
+                alreadyProcessed: false
             };
+
+            // Save the operation in the same transaction as the stock update.
+            // If the transaction fails, this record also rolls back.
+            if (operationId) {
+                await ProcessedInventoryOperation.create(
+                    [{
+                        operationId,
+                        operationType: 'STOCK_IN',
+                        result: {
+                            batchId: batch[0]._id,
+                            totalQuantity: stockQuantity.totalQuantity
+                        }
+                    }],
+                    { session }
+                );
+            }
         });
 
         return result;

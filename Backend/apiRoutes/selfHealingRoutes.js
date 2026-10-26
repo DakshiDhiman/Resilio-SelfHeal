@@ -1165,14 +1165,29 @@ router.post("/expired-stock", async (req, res) => {
 
 
 
-/* FAILURE 4: OFFLINE INVENTORY RECOVERY */
 
-// Reconcile inventory after the database connection is available again.
+
+// FAILURE 4: CHECK BACKEND AND DATABASE CONNECTION
+router.get("/offline-inventory/health", (req, res) => {
+    const databaseConnected = mongoose.connection.readyState === 1;
+
+    res.status(databaseConnected ? 200 : 503).json({
+        success: databaseConnected,
+        backendAvailable: true,
+        databaseConnected,
+        message: databaseConnected
+            ? "Backend and MongoDB are connected."
+            : "Backend is running, but MongoDB is disconnected."
+    });
+});
+
 router.post("/offline-inventory/recover", async (req, res) => {
     const timeline = [];
-    let streamStarted = false;
-
     const startedAt = Date.now();
+    let streamStarted = false;
+    let testIngredient = null;
+    let originalStock = null;
+    let testMismatchInjected = false;
 
     const progress = (stage, message, details = {}) => {
         sendProgress(res, timeline, stage, message, details);
@@ -1186,157 +1201,258 @@ router.post("/offline-inventory/recover", async (req, res) => {
     };
 
     try {
-        // Start the progress stream.
         beginStream(res);
         streamStarted = true;
 
-        progress(
-            "started",
-            "Starting offline inventory recovery."
-        );
-
-        await wait(400);
-
-        // Step 1: Check database connectivity.
-        progress(
-            "checking_connection",
-            "Checking whether the database connection is available."
-        );
+        progress("started", "Starting offline inventory recovery.");
 
         if (mongoose.connection.readyState !== 1) {
-            throw new Error(
-                "Database is disconnected. Reconnect MongoDB before running recovery."
-            );
+            throw new Error("MongoDB is disconnected. Reconnect before recovery.");
         }
 
         progress(
             "connection_restored",
-            "Database connection is available. Checking inventory records."
+            "Database connection is available."
         );
 
-        await wait(400);
+        testIngredient = await Ingredient.findOne().lean();
 
-        // Step 2: Find ingredients.
-        const ingredients = await Ingredient.find().lean();
-
-        if (ingredients.length === 0) {
-            throw new Error(
-                "No ingredients found. Add ingredients before testing inventory recovery."
-            );
+        if (!testIngredient) {
+            throw new Error("Add an ingredient before testing Failure 4.");
         }
 
-        progress(
-            "inventory_found",
-            `Found ${ingredients.length} ingredient(s). Starting inventory reconciliation.`,
+        const ingredientId = testIngredient._id;
+
+        // Calculate the correct quantity from usable batches.
+        const now = new Date();
+
+        const batches = await StockBatch.aggregate([
             {
-                totalIngredients: ingredients.length
-            }
-        );
-
-        await wait(400);
-
-        // Step 3: Reconcile inventory for each ingredient.
-        const results = [];
-
-        for (let index = 0; index < ingredients.length; index++) {
-            const ingredient = ingredients[index];
-
-            progress(
-                "recovery_in_progress",
-                `Reconciling inventory for ${ingredient.name || ingredient.ingredientName || "ingredient"}.`,
-                {
-                    ingredientId: String(ingredient._id),
-                    ingredientName:
-                        ingredient.name ||
-                        ingredient.ingredientName ||
-                        "Unknown ingredient",
-                    currentIngredient: index + 1,
-                    totalIngredients: ingredients.length
+                $match: {
+                    ingredientId: ingredientId,
+                    status: "ACTIVE",
+                    quantityRemaining: { $gt: 0 },
+                    $or: [
+                        { expiryDate: null },
+                        { expiryDate: { $exists: false } },
+                        { expiryDate: { $gt: now } }
+                    ]
                 }
-            );
-
-            try {
-                const recoveryResult = await reconcileIngredient(
-                    String(ingredient._id)
-                );
-
-                results.push({
-                    ingredientId: String(ingredient._id),
-                    ingredientName:
-                        ingredient.name ||
-                        ingredient.ingredientName ||
-                        "Unknown ingredient",
-                    success: true,
-                    result: recoveryResult
-                });
-            } catch (error) {
-                results.push({
-                    ingredientId: String(ingredient._id),
-                    ingredientName:
-                        ingredient.name ||
-                        ingredient.ingredientName ||
-                        "Unknown ingredient",
-                    success: false,
-                    message: error.message
-                });
+            },
+            {
+                $group: {
+                    _id: "$ingredientId",
+                    totalQuantity: { $sum: "$quantityRemaining" }
+                }
             }
+        ]);
 
-            await wait(200);
-        }
+        const expectedQuantity = batches.length
+            ? batches[0].totalQuantity
+            : 0;
 
-        // Step 4: Check recovery results.
-        const failedResults = results.filter(
-            (item) => !item.success
+        originalStock = await StockQuantity.findOne({
+            ingredientId
+        }).lean();
+
+        const originalQuantity = originalStock
+            ? originalStock.totalQuantity
+            : null;
+
+        // Inject a controlled mismatch for this demonstration.
+        const incorrectQuantity = expectedQuantity + 5;
+
+        await StockQuantity.findOneAndUpdate(
+            { ingredientId },
+            {
+                $set: {
+                    totalQuantity: incorrectQuantity,
+                    lastUpdatedAt: new Date()
+                }
+            },
+            {
+                upsert: true,
+                returnDocument: "after",
+                runValidators: true,
+                setDefaultsOnInsert: true
+            }
         );
 
-        const recoveredCount = results.length - failedResults.length;
-        const recoveryVerified = failedResults.length === 0;
+        testMismatchInjected = true;
 
         progress(
-            "verification_started",
-            "Verifying the inventory reconciliation results."
+            "injected",
+            "Injected a controlled stock quantity mismatch.",
+            {
+                ingredientName: testIngredient.name,
+                expectedQuantity,
+                incorrectQuantity,
+                difference: 5
+            }
         );
 
-        await wait(400);
+        await wait(500);
+
+        // Detect the injected mismatch.
+        const currentStock = await StockQuantity.findOne({
+            ingredientId
+        }).lean();
+
+        const mismatchDetected = Boolean(
+            currentStock &&
+            Math.abs(currentStock.totalQuantity - expectedQuantity) > 0.000001
+        );
+
+        if (!mismatchDetected) {
+            throw new Error("The injected stock mismatch was not detected.");
+        }
+
+        progress(
+            "detected",
+            "Inventory inconsistency detected. Stored quantity does not match usable batches.",
+            {
+                storedQuantity: currentStock.totalQuantity,
+                expectedQuantity,
+                mismatchDetected
+            }
+        );
+
+        await wait(500);
+
+        // Repair using the existing self-healing logic.
+        progress(
+            "recovery_started",
+            "Automatic recovery started. Recalculating stock from usable batches."
+        );
+
+        const repairResult = await reconcileIngredient(
+            String(ingredientId)
+        );
+
+        progress(
+            "recovered",
+            repairResult.repaired
+                ? "Stock quantity mismatch repaired automatically."
+                : "Reconciliation completed. Checking the final quantity."
+        );
+
+        // Independently verify the corrected database value.
+        const verifiedStock = await StockQuantity.findOne({
+            ingredientId
+        }).lean();
+
+        const recoveryVerified = Boolean(
+            verifiedStock &&
+            Math.abs(
+                verifiedStock.totalQuantity - expectedQuantity
+            ) <= 0.000001
+        );
 
         progress(
             recoveryVerified ? "verification_passed" : "verification_failed",
             recoveryVerified
-                ? "Inventory reconciliation completed successfully for every ingredient."
-                : "Recovery finished, but some ingredients could not be reconciled.",
+                ? "Verification passed. Stored stock now matches usable batch quantities."
+                : "Verification failed. Stored stock still differs from usable batches.",
             {
-                totalIngredients: results.length,
-                recoveredIngredients: recoveredCount,
-                failedIngredients: failedResults.length,
+                expectedQuantity,
+                actualQuantity: verifiedStock
+                    ? verifiedStock.totalQuantity
+                    : null,
                 recoveryVerified
             }
         );
 
-        // Step 5: Return the final result.
-        const result = {
-            success: recoveryVerified,
-            recovered: recoveredCount > 0,
+        if (!recoveryVerified) {
+            throw new Error("Stock recovery verification failed.");
+        }
+
+        // Restore the original StockQuantity record after the demonstration.
+        progress(
+            "cleanup_started",
+            "Restoring the original stock quantity record after the test."
+        );
+
+        if (originalStock) {
+            await StockQuantity.findOneAndUpdate(
+                { ingredientId },
+                {
+                    $set: {
+                        totalQuantity: originalQuantity,
+                        lastUpdatedAt: originalStock.lastUpdatedAt || new Date()
+                    }
+                },
+                { runValidators: true }
+            );
+        } else {
+            await StockQuantity.deleteOne({ ingredientId });
+        }
+
+        testMismatchInjected = false;
+
+        progress(
+            "cleanup_completed",
+            "Test cleanup completed. Original stock quantity record restored."
+        );
+
+        finish({
+            success: true,
+            recovered: true,
             completed: true,
             failureType: "offline-inventory-recovery",
-            message: recoveryVerified
-                ? "Offline inventory recovery and verification completed successfully."
-                : "Inventory recovery completed with some failures.",
+            message:
+                "Inventory mismatch detected, automatically repaired, verified, and cleaned up successfully.",
             durationMs: Date.now() - startedAt,
             timeline,
             summary: {
+                failureInjected: true,
                 failureDetected: true,
+                mismatchDetected: true,
                 databaseConnected: true,
-                totalIngredients: results.length,
-                recoveredIngredients: recoveredCount,
-                failedIngredients: failedResults.length,
-                verificationPassed: recoveryVerified
+                expectedQuantity,
+                incorrectQuantity,
+                repairedQuantity: verifiedStock.totalQuantity,
+                recoveryVerified: true,
+                cleanupCompleted: true
             },
-            results
-        };
-
-        finish(result);
+            verification: {
+                mismatchDetected: true,
+                databaseConnected: true,
+                quantityMatchesBatches: true,
+                recoveryVerified: true
+            },
+            results: [{
+                ingredientId: String(ingredientId),
+                ingredientName: testIngredient.name,
+                success: true,
+                result: repairResult
+            }]
+        });
     } catch (error) {
         console.error("Offline inventory recovery failed:", error);
+
+        // Best-effort restoration if the test injected a mismatch.
+        if (testMismatchInjected && testIngredient && mongoose.connection.readyState === 1) {
+            try {
+                if (originalStock) {
+                    await StockQuantity.findOneAndUpdate(
+                        { ingredientId: testIngredient._id },
+                        {
+                            $set: {
+                                totalQuantity: originalStock.totalQuantity,
+                                lastUpdatedAt: originalStock.lastUpdatedAt || new Date()
+                            }
+                        },
+                        { upsert: true, runValidators: true }
+                    );
+                } else {
+                    await StockQuantity.deleteOne({
+                        ingredientId: testIngredient._id
+                    });
+                }
+            } catch (cleanupError) {
+                console.error("Failure 4 cleanup failed:", cleanupError);
+            }
+        }
 
         const result = {
             success: false,
@@ -1347,24 +1463,21 @@ router.post("/offline-inventory/recover", async (req, res) => {
             durationMs: Date.now() - startedAt,
             timeline,
             summary: {
-                failureDetected: true,
-                verificationPassed: false
+                failureInjected: testMismatchInjected,
+                recoveryVerified: false
             }
         };
 
         if (streamStarted && !res.writableEnded) {
-            progress(
-                "recovery_failed",
-                result.message
-            );
-
+            progress("recovery_failed", result.message);
             result.timeline = timeline;
             finish(result);
         } else if (!res.headersSent) {
             res.status(500).json(result);
         }
     }
-}); 
+});
+
 
 
 module.exports = router;

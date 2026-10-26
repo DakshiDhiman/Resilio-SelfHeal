@@ -1,267 +1,369 @@
-
-import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+``
+import React, { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import {
+  ArrowLeft,
   Search,
   Clock,
   Users,
-  ArrowLeft,
-  Utensils,
-  CheckCircle,
+  CheckCircle2,
+  RefreshCw,
+  UtensilsCrossed,
+  Ticket,
+  CircleAlert,
 } from "lucide-react";
 
-function QueueStatus() {
-  const navigate = useNavigate();
-  const [tokenNumber, setTokenNumber] = useState("");
-  const [queueEntry, setQueueEntry] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const location = useLocation();
-  const notification = location.state?.notification;
+const API_URL = "/api";
 
-  console.log("Queue notification:", notification);
+const statusDetails = {
+  Waiting: {
+    title: "You're in the queue",
+    description: "Please wait while we prepare for your turn.",
+    step: 1,
+  },
+  "Your Turn": {
+    title: "It's your turn!",
+    description: "Please approach the restaurant staff.",
+    step: 2,
+  },
+  Seated: {
+    title: "You're seated",
+    description: "Enjoy your meal!",
+    step: 3,
+  },
+  Completed: {
+    title: "Visit completed",
+    description: "Thank you for dining with us.",
+    step: 4,
+  },
+};
+
+export default function QueueStatus() {
+  const location = useLocation();
+  const initialEntry = location.state?.queueEntry || null;
+
+  const [tokenNumber, setTokenNumber] = useState(
+    initialEntry?.tokenNumber || ""
+  );
+  const [queueEntry, setQueueEntry] = useState(initialEntry);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  useEffect(() => {
+    if (initialEntry) {
+      setQueueEntry(initialEntry);
+      setTokenNumber(initialEntry.tokenNumber || "");
+    }
+  }, [initialEntry]);
 
   const checkStatus = async (event) => {
-    event.preventDefault();
+    event?.preventDefault();
 
-    const token = tokenNumber.trim().toUpperCase();
+    const token = tokenNumber.trim();
 
     if (!token) {
       setError("Please enter your token number.");
-      setQueueEntry(null);
       return;
     }
 
     setLoading(true);
     setError("");
-    setQueueEntry(null);
 
     try {
       const response = await fetch(
-        `/api/queue/token/${encodeURIComponent(token)}`
+        `${API_URL}/queue/token/${encodeURIComponent(token)}`,
+        { credentials: "include" }
       );
 
       const result = await response.json();
 
-      if (!response.ok || !result.success) {
+      if (!response.ok || result.success === false) {
         throw new Error(
-          result.message || "Queue status could not be found."
+          result.message || "Token not found. Please check and try again."
         );
       }
 
-      setQueueEntry(result.data);
+      const entry = result.data || result.queueEntry || result;
+
+      if (!entry?.tokenNumber) {
+        throw new Error("Queue details could not be found.");
+      }
+
+      setQueueEntry(entry);
+      setTokenNumber(entry.tokenNumber);
+      setLastUpdated(new Date());
     } catch (err) {
-      setError(
-        err.message || "Unable to connect to the server. Please try again."
-      );
+      setError(err.message || "Unable to check your queue right now.");
     } finally {
       setLoading(false);
     }
   };
 
-  const statusMessages = {
-    Waiting: "You are in the queue. Please wait for your turn.",
-    "Almost Your Turn": "You are almost next! Please stay nearby.",
-    Called: "Your turn has been called. Please check with restaurant staff.",
-    "Table Ready": "Your table is ready. Please approach the restaurant staff.",
-    Seated: "You have been seated. Enjoy your meal!",
-    Completed: "Your visit is marked as completed. Thank you!",
-    Cancelled: "This queue entry has been cancelled.",
-    "No-show": "Your token was marked as no-show. Please contact the staff.",
-  };
+  const status = queueEntry?.status || "Waiting";
+  const details = statusDetails[status] || statusDetails.Waiting;
 
-  const isWaiting = ["Waiting", "Almost Your Turn"].includes(
-    queueEntry?.status
-  );
-
-  const waitMinutes = Number(queueEntry?.estimatedWaitMinutes);
-  const hasWaitEstimate =
-    queueEntry?.estimatedWaitMinutes !== null &&
-    queueEntry?.estimatedWaitMinutes !== undefined &&
-    Number.isFinite(waitMinutes) &&
-    waitMinutes >= 0;
-
-  const waitText = !hasWaitEstimate
-    ? "Not available"
-    : waitMinutes === 0
-      ? "Your turn is next"
-      : `About ${waitMinutes} minutes`;
+  const position = queueEntry?.position ?? queueEntry?.queuePosition;
+  const estimatedWait =
+    queueEntry?.estimatedWait ?? queueEntry?.estimatedWaitMinutes;
 
   return (
-    <div className="min-h-screen bg-[#F7F4EC] px-4 py-8 text-[#173D35] sm:px-6">
-      <header className="mx-auto flex max-w-5xl items-center justify-between">
-        <button
-          onClick={() => navigate("/")}
-          className="flex items-center gap-2 font-bold"
-        >
-          <Utensils size={24} />
-          <span className="text-xl">Resilio</span>
-        </button>
+    <div className="min-h-screen bg-[#F7F4EC] text-[#173D35]">
+      {/* Navbar - same style as Join Queue */}
+      <header className="border-b border-[#173D35]/10 bg-[#F7F4EC]">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
+          <Link to="/" className="flex items-center gap-2.5">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#173D35] text-white">
+              <UtensilsCrossed size={20} />
+            </span>
 
-        <button
-          onClick={() => navigate("/")}
-          className="flex items-center gap-2 rounded-xl border border-[#D8C6A5] px-4 py-2 text-sm font-semibold hover:bg-white"
-        >
-          <ArrowLeft size={16} />
-          Home
-        </button>
+           <div>
+              <h1
+                className="text-2xl font-bold tracking-tight"
+                style={{ fontFamily: "'DM Serif Display', serif" }}
+              >
+                resilio<span className="text-[#78877C]">.</span>
+              </h1>
+              <p className="text-[10px] font-semibold uppercase tracking-[2px] text-[#78877C]">
+                Dine without the wait
+              </p>
+            </div>
+            
+          </Link>
+
+          <Link
+            to="/"
+            className="flex items-center gap-2 text-sm font-medium text-[#173D35]/75 transition hover:text-[#173D35]"
+          >
+            <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="inline-flex items-center gap-2 rounded-full border border-[#173D35]/20 px-4 py-2.5 text-sm font-medium transition hover:bg-white"
+          >
+            <ArrowLeft size={16} />
+            Back to home
+          </button>
+          </Link>
+        </div>
       </header>
 
-      <main className="mx-auto mt-12 max-w-xl">
-        <div className="text-center">
-          <span className="inline-flex rounded-full bg-[#DCE5D8] px-4 py-2 text-xs font-bold tracking-widest">
-            CUSTOMER QUEUE
-          </span>
+      {/* Main content */}
+      <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
+        <div className="mx-auto max-w-2xl">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#DCE5D8]">
+              <Ticket size={26} />
+            </div>
 
-          <h1 className="mt-5 text-3xl font-bold sm:text-4xl">
-            Check Your Queue Status
-          </h1>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-[#78877A]">
+              Queue status
+            </p>
 
-          <p className="mt-4 leading-7 text-[#78877C]">
-            Enter the token number you received when joining the Resilio queue.
-          </p>
-        </div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              Track your queue
+            </h1>
 
-        <div className="mt-8 rounded-3xl border border-[#E5E2D9] bg-white p-6 shadow-sm sm:p-8">
-          
-          {notification && (
-    <div
-      role="status"
-      aria-live="polite"
-      className="mb-5 rounded-xl border border-[#DCE5D8] bg-[#DCE5D8] p-4 text-sm text-[#173D35]"
-    >
-      <p className="font-bold">{notification.title}</p>
-      <p className="mt-1 leading-6">{notification.message}</p>
-    </div>
-  )}
-          <form onSubmit={checkStatus}>
-            <label
-              htmlFor="tokenNumber"
-              className="mb-2 block text-sm font-semibold"
-            >
-              Your Token Number
-            </label>
+            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#173D35]/65 sm:text-base">
+              Enter your token number to check your current status and see
+              what's next.
+            </p>
+          </div>
 
-            <input
-              id="tokenNumber"
-              type="text"
-              value={tokenNumber}
-              onChange={(event) => setTokenNumber(event.target.value)}
-              placeholder="e.g. R-4821"
-              autoComplete="off"
-              className="w-full rounded-xl border border-[#D8C6A5] bg-[#F7F4EC] px-4 py-4 outline-none focus:border-[#173D35] focus:ring-2 focus:ring-[#DCE5D8]"
-            />
+          {/* Token search */}
+          <section className="rounded-2xl border border-[#173D35]/10 bg-white p-5 shadow-sm sm:p-7">
+            <form onSubmit={checkStatus}>
+              <label
+                htmlFor="tokenNumber"
+                className="mb-2 block text-sm font-semibold"
+              >
+                Your token number
+              </label>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="relative flex-1">
+                  <Ticket
+                    size={18}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-[#78877A]"
+                  />
+
+                  <input
+                    id="tokenNumber"
+                    type="text"
+                    value={tokenNumber}
+                    onChange={(e) => setTokenNumber(e.target.value)}
+                    placeholder="Enter your token number"
+                    className="w-full rounded-xl border border-[#173D35]/15 bg-[#FAFAF7] py-3.5 pl-11 pr-4 text-sm outline-none transition placeholder:text-[#173D35]/35 focus:border-[#173D35] focus:ring-2 focus:ring-[#173D35]/10"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#173D35] px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#245348] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? (
+                    <RefreshCw size={17} className="animate-spin" />
+                  ) : (
+                    <Search size={17} />
+                  )}
+                  {loading ? "Checking..." : "Track queue"}
+                </button>
+              </div>
+            </form>
 
             {error && (
-              <p
+              <div
                 role="alert"
-                className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+                className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
               >
-                {error}
-              </p>
+                <CircleAlert size={18} className="mt-0.5 shrink-0" />
+                <p>{error}</p>
+              </div>
             )}
+          </section>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#173D35] px-5 py-4 font-semibold text-white hover:bg-[#28594C] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Search size={18} />
-              {loading ? "Checking..." : "Check Status"}
-            </button>
-          </form>
-
+          {/* Queue details */}
           {queueEntry && (
-            <div
-              aria-live="polite"
-              className="mt-7 rounded-2xl border border-[#DCE5D8] bg-[#F7F4EC] p-5"
-            >
-              <p className="text-sm font-semibold text-[#78877C]">
-                TOKEN NUMBER
-              </p>
+            <section className="mt-5 overflow-hidden rounded-2xl border border-[#173D35]/10 bg-white shadow-sm">
+              <div className="flex flex-col gap-4 bg-[#DCE5D8] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[#173D35]/60">
+                    Token number
+                  </p>
 
-              <h2 className="mt-2 text-4xl font-bold">
-                {queueEntry.tokenNumber}
-              </h2>
+                  <h2 className="mt-1 text-2xl font-bold">
+                    {queueEntry.tokenNumber}
+                  </h2>
+                </div>
 
-              <div className="mt-5 rounded-xl bg-[#DCE5D8] p-4">
-                <p className="text-sm text-[#78877C]">Current Status</p>
-                <p className="mt-1 text-lg font-bold">
-                  {queueEntry.status}
-                </p>
-                <p className="mt-2 text-sm leading-6">
-                  {statusMessages[queueEntry.status] ||
-                    "Please contact restaurant staff for assistance."}
-                </p>
+                <span className="w-fit rounded-full border border-[#173D35]/10 bg-white px-4 py-2 text-sm font-semibold">
+                  {status}
+                </span>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-[#E5E2D9] bg-white p-4">
-                  <Users size={20} className="mb-2 text-[#78877C]" />
-                  <p className="text-xs text-[#78877C]">Party Size</p>
-                  <p className="mt-1 font-semibold">
-                    {queueEntry.partySize}{" "}
-                    {queueEntry.partySize === 1 ? "person" : "people"}
-                  </p>
-                </div>
+              <div className="p-5 sm:p-6">
+                <h3 className="text-xl font-semibold">{details.title}</h3>
 
-                <div className="rounded-xl border border-[#E5E2D9] bg-white p-4">
-                  <Clock size={20} className="mb-2 text-[#78877C]" />
-                  <p className="text-xs text-[#78877C]">
-                    Estimated Wait
-                  </p>
-                  <p className="mt-1 font-semibold">
-                    {isWaiting ? waitText : "—"}
-                  </p>
-                </div>
-              </div>
+                <p className="mt-1 text-sm leading-6 text-[#173D35]/65">
+                  {details.description}
+                </p>
 
-              {isWaiting && queueEntry.queuePosition != null && (
-                <div className="mt-4 rounded-xl border border-[#E5E2D9] bg-white p-4">
-                  <p className="text-sm text-[#78877C]">
-                    Your Position in Queue
-                  </p>
-                  <p className="mt-1 text-2xl font-bold">
-                    #{queueEntry.queuePosition}
-                  </p>
-                </div>
-              )}
+                <div className="my-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl bg-[#F7F4EC] p-4">
+                    <div className="flex items-center gap-2 text-sm text-[#173D35]/60">
+                      <Users size={17} />
+                      Queue position
+                    </div>
 
-              {!isWaiting &&
-                ["Called", "Table Ready", "Seated", "Completed"].includes(
-                  queueEntry.status
-                ) && (
-                  <div className="mt-4 flex items-start gap-2 rounded-xl border border-[#DCE5D8] bg-white p-4">
-                    <CheckCircle
-                      size={20}
-                      className="mt-0.5 shrink-0 text-[#173D35]"
-                    />
-                    <p className="text-sm leading-6">
-                      Your queue status has changed. Follow the instructions
-                      shown above or ask restaurant staff if you need help.
+                    <p className="mt-2 text-xl font-semibold">
+                      {position != null ? `#${position}` : "—"}
                     </p>
                   </div>
-                )}
 
-              <p className="mt-4 text-sm leading-6 text-[#78877C]">
-                This page updates when you click Check Status. Check again
-                later to see the latest status saved by the restaurant system.
+                  <div className="rounded-xl bg-[#F7F4EC] p-4">
+                    <div className="flex items-center gap-2 text-sm text-[#173D35]/60">
+                      <Clock size={17} />
+                      Estimated wait
+                    </div>
+
+                    <p className="mt-2 text-xl font-semibold">
+                      {estimatedWait != null ? `${estimatedWait} min` : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Progress */}
+                <div className="rounded-xl border border-[#173D35]/10 p-4">
+                  <p className="mb-4 text-sm font-semibold">Queue progress</p>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: "Waiting", step: 1 },
+                      { label: "Your Turn", step: 2 },
+                      { label: "Seated", step: 3 },
+                      { label: "Completed", step: 4 },
+                    ].map((item) => {
+                      const complete = details.step >= item.step;
+
+                      return (
+                        <div key={item.step} className="text-center">
+                          <div
+                            className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full ${
+                              complete
+                                ? "bg-[#173D35] text-white"
+                                : "bg-[#DCE5D8] text-[#173D35]/50"
+                            }`}
+                          >
+                            {complete ? (
+                              <CheckCircle2 size={17} />
+                            ) : (
+                              <span className="text-xs">{item.step}</span>
+                            )}
+                          </div>
+
+                          <p className="mt-2 text-[10px] font-medium text-[#173D35]/70 sm:text-xs">
+                            {item.label}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={checkStatus}
+                  disabled={loading}
+                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#173D35]/20 py-3 text-sm font-semibold transition hover:bg-[#F7F4EC] disabled:opacity-60"
+                >
+                  <RefreshCw
+                    size={16}
+                    className={loading ? "animate-spin" : ""}
+                  />
+                  Refresh status
+                </button>
+
+                {lastUpdated && (
+                  <p className="mt-3 text-center text-xs text-[#173D35]/50">
+                    Last checked at {lastUpdated.toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          {!queueEntry && !error && (
+            <div className="mt-5 rounded-2xl border border-dashed border-[#173D35]/20 px-5 py-7 text-center">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#DCE5D8]">
+                <Search size={20} />
+              </div>
+
+              <p className="mt-3 text-sm font-semibold">
+                Your queue details will appear here
               </p>
 
-              <button
-                type="button"
-                onClick={checkStatus}
-                disabled={loading}
-                className="mt-4 w-full rounded-xl border border-[#D8C6A5] px-4 py-3 text-sm font-semibold hover:bg-white disabled:opacity-60"
-              >
-                {loading ? "Refreshing..." : "Refresh Status"}
-              </button>
+              <p className="mt-1 text-xs leading-5 text-[#173D35]/60">
+                Enter the token you received after joining the queue.
+              </p>
             </div>
           )}
+
+          <p className="mt-6 text-center text-sm text-[#173D35]/65">
+            Haven't joined yet?{" "}
+            <Link
+              to="/queue/join"
+              className="font-semibold text-[#173D35] underline underline-offset-4"
+            >
+              Join the queue
+            </Link>
+          </p>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-[#173D35]/10 px-5 py-5 text-center text-xs text-[#173D35]/50">
+        resilio. · A smoother way to dine
+      </footer>
     </div>
   );
 }
-
-export default QueueStatus;
